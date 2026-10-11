@@ -88,6 +88,7 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
       if(market==null) throw new IllegalStateException("SkyBoxyMarket did not enable");
       File setupFlag=new File(getDataFolder(),"setup-world.flag");
       if(setupFlag.isFile()){setupAcceptanceWorld(market,setupFlag);return;}
+      if(new File(getDataFolder(),"gates.flag").isFile()){testReleaseGates(market);return;}
       if(new File(getDataFolder(),"claims-only.flag").isFile()){
         testMergedReceiptDeath(market);testPartialRecoveryClaims(market);testDeathRecoveryReceipt(market);testPartialClaimFaults(market);testRecoveryClaimMenus(market);
         testWholeRecoveryClaims(market,()->{getLogger().info("CLAIM ACCEPTANCE PASS");Bukkit.getScheduler().runTaskLater(this,Bukkit::shutdown,10L);});return;
@@ -132,6 +133,83 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
         try{testResetAndRecovery(market,booths,templates,restartMarker);}catch(Throwable ex){fail("ACCEPTANCE FAIL",ex);}
       });
     } catch(Throwable t) { fail("ACCEPTANCE FAIL",t); }
+  }
+  /** Step 6 release-gate checks that the five-start sequence does not cover. Ends with GATES PASS and a shutdown. */
+  private void testReleaseGates(Object market)throws Exception{
+    List<?> booths=(List<?>)field(market,"booths");World world=Bukkit.getWorld("world");
+    NamespacedKey hologramKey=new NamespacedKey((Plugin)market,"booth_hologram");
+    Object db=field(market,"db"),recovery=field(market,"recovery");
+
+    // 1. Holograms survive a real chunk unload/reload: non-persistent entities vanish, ChunkLoadEvent respawns exactly one pair.
+    Object holoBooth=booths.getFirst();String holoId=(String)field(holoBooth,"id");Location center=(Location)call(holoBooth,"center",new Class<?>[0]);
+    int cx=center.getBlockX()>>4,cz=center.getBlockZ()>>4;
+    world.setChunkForceLoaded(cx,cz,false);
+    if(!world.unloadChunk(cx,cz,true))throw new IllegalStateException("Could not unload hologram chunk "+cx+","+cz);
+    world.loadChunk(cx,cz,true);
+
+    // 2. Redstone inside a rented booth is suppressed by the default role policy.
+    Object protection=HandlerList.getRegisteredListeners((Plugin)market).stream().map(reg->reg.getListener()).filter(l->l.getClass().getName().endsWith("MarketProtection")).findFirst().orElseThrow();
+    Object redBooth=booths.get(1);UUID redOwner=UUID.randomUUID();setField(redBooth,"owner",redOwner);
+    org.bukkit.block.Block wire=world.getBlockAt((int)field(redBooth,"x")+1,(int)field(redBooth,"y")+1,(int)field(redBooth,"z")+1);
+    org.bukkit.event.block.BlockRedstoneEvent pulse=new org.bukkit.event.block.BlockRedstoneEvent(wire,0,15);
+    invoke(protection,"redstone",new Class<?>[]{org.bukkit.event.block.BlockRedstoneEvent.class},pulse);
+    setField(redBooth,"owner",null);
+    if(pulse.getNewCurrent()!=0)throw new IllegalStateException("Redstone current survived inside a rented booth: "+pulse.getNewCurrent());
+    getLogger().info("GATE REDSTONE PASS rented-booth redstone current forced to 0 by default policy");
+
+    // 3. A reset whose schematic is missing must not touch the world or journal, keeps the booth locked, and completes once the style returns.
+    Object resetBooth=booths.stream().filter(b->{try{return field(b,"owner")==null&&field(b,"style").equals("normal");}catch(Exception e){return false;}}).findFirst().orElseThrow();
+    UUID resetOwner=UUID.randomUUID();String style=(String)field(resetBooth,"style");String label="gate-missing-style-"+UUID.randomUUID();
+    int rx=(int)field(resetBooth,"x"),ry=(int)field(resetBooth,"y"),rz=(int)field(resetBooth,"z");
+    setField(resetBooth,"owner",resetOwner);setField(resetBooth,"leaseId","gate-"+UUID.randomUUID());setField(resetBooth,"expiry",System.currentTimeMillis()+3600000L);
+    call(db,"save",new Class<?>[]{resetBooth.getClass()},resetBooth);
+    org.bukkit.entity.Item dropped=world.dropItem(new Location(world,rx+3.5,ry+2,rz+3.5),tagged(Material.EMERALD,label,2));
+    setField(resetBooth,"style","gate_missing_style");
+    invoke(recovery,"reset",new Class<?>[]{resetBooth.getClass(),String.class},resetBooth,"GATE_MISSING_STYLE");
+    boolean locked=Boolean.TRUE.equals(field(resetBooth,"resetting")),journaled=(int)call(db,"resetCount",new Class<?>[0])>=1;
+    int earlyEntries=((List<?>)call(db,"recovered",new Class<?>[]{UUID.class,int.class,int.class},resetOwner,0,45)).size();
+    if(!locked||!journaled||earlyEntries!=0||!dropped.isValid()||!resetOwner.equals(field(resetBooth,"owner")))
+      throw new IllegalStateException("Missing-schematic reset: locked="+locked+" journal="+journaled+" entries="+earlyEntries+" itemIntact="+dropped.isValid());
+    setField(resetBooth,"style",style);
+    invoke(recovery,"resumeResets",new Class<?>[0]);
+
+    // 4. A complete booth that crosses the marketmain boundary is not registered by a scan.
+    Map<?,?> templates=(Map<?,?>)field(field(market,"templates"),"templates");Object premium=templates.get("premium_corner");
+    java.lang.reflect.Constructor<?> boothType=holoBooth.getClass().getDeclaredConstructor(String.class,String.class,String.class,int.class,int.class,int.class,int.class,int.class,int.class,int.class);boothType.setAccessible(true);
+    Object edge=boothType.newInstance("gate-edge","world","premium_corner",166,-60,20,(int)field(premium,"width"),(int)field(premium,"height"),(int)field(premium,"length"),0);
+    Method restore=premium.getClass().getDeclaredMethod("restore",edge.getClass());restore.setAccessible(true);restore.invoke(premium,edge);
+    // Load every chunk of the fixture region so the scan really examines the edge booth (unloaded positions are skipped).
+    for(int x=-1;x<=11;x++)for(int z=-1;z<=4;z++)world.setChunkForceLoaded(x,z,true);
+    int before=booths.size();Object scanner=field(market,"scanner");long scanStart=System.nanoTime();
+    call(scanner,"scan",new Class<?>[]{Player.class},(Object)null);
+
+    // 5. Rough cost of the synchronous World.save(true) each restore batch performs (small flat test world; not production TPS).
+    long[] saves=new long[5];for(int i=0;i<saves.length;i++){long t=System.nanoTime();world.save(true);saves[i]=(System.nanoTime()-t)/1_000_000;}
+    getLogger().info("GATE WORLD SAVE COST ms="+Arrays.toString(saves)+" (scratch flat world, 8 booths)");
+
+    new BukkitRunnable(){int ticks=0;@Override public void run(){
+      try{
+        if((boolean)call(scanner,"running",new Class<?>[0])&&++ticks<20*120)return;
+        cancel();
+        long scanMs=(System.nanoTime()-scanStart)/1_000_000;
+        for(int x=-1;x<=11;x++)for(int z=-1;z<=4;z++)world.setChunkForceLoaded(x,z,false);
+        String result=String.valueOf(field(scanner,"lastResult"));
+        if(!result.contains(" 8 known")||!result.contains("0 positions/candidates skipped")&&result.contains("skipped"))throw new IllegalStateException("Edge scan did not examine the whole region: "+result);
+        int after=((List<?>)field(market,"booths")).size();
+        if(after!=before)throw new IllegalStateException("Scan registered a booth crossing the region edge: "+before+" -> "+after+" ("+field(scanner,"lastResult")+")");
+        getLogger().info("GATE SCANNER PASS boundary-crossing booth ignored; full fixture region scan took "+scanMs+" ms ("+field(scanner,"lastResult")+")");
+        long displays=world.getEntities().stream().filter(e->holoId.equals(e.getPersistentDataContainer().get(hologramKey,PersistentDataType.STRING))&&e instanceof org.bukkit.entity.TextDisplay).count();
+        long interactions=world.getEntities().stream().filter(e->holoId.equals(e.getPersistentDataContainer().get(hologramKey,PersistentDataType.STRING))&&e instanceof org.bukkit.entity.Interaction).count();
+        if(displays!=1||interactions!=1)throw new IllegalStateException("Hologram after chunk reload: displays="+displays+" interactions="+interactions);
+        getLogger().info("GATE HOLOGRAM PASS chunk "+cx+","+cz+" unloaded and reloaded; exactly one TextDisplay and one Interaction respawned");
+        if(Boolean.TRUE.equals(field(resetBooth,"resetting"))||field(resetBooth,"owner")!=null)throw new IllegalStateException("Resumed reset did not complete after the style returned");
+        int entries=0;for(Object entry:(List<?>)call(db,"recovered",new Class<?>[]{UUID.class,int.class,int.class},resetOwner,0,45))
+          if(label.equals(((ItemStack)call(entry,"item",new Class<?>[0])).getItemMeta().getPersistentDataContainer().get(new NamespacedKey(PaperAcceptanceHarness.this,"case"),PersistentDataType.STRING)))entries++;
+        if(entries!=1)throw new IllegalStateException("Resumed reset journaled the dropped item "+entries+" times");
+        getLogger().info("GATE MISSING SCHEMATIC PASS reset halted with world and journal untouched, booth stayed locked; after the style returned, resume completed and journaled the item once");
+        getLogger().info("GATES PASS");Bukkit.getScheduler().runTaskLater(PaperAcceptanceHarness.this,Bukkit::shutdown,20L);
+      }catch(Throwable ex){cancel();fail("GATES FAIL",ex);}
+    }}.runTaskTimer(this,40L,1L);
   }
   /** Test-fixture only: builds each bundled style at rotations 0–3 inside marketmain, then lets the production scanner register them. */
   private void setupAcceptanceWorld(Object market,File flag)throws Exception{

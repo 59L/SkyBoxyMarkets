@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-11 — shop providers and release-gate pass (Claude)
+
+- **Shop provider registry.** QuickShop-Hikari 6.3.0.3, ChestShop 3.12.2 and mc-PlayerShop 1.5.1 coexist, and each one fails closed. Sales are recorded once per `(provider, key)` in the new `shop_sales` table (schema migration 5). Diagnostics show each provider's state, and sales read "unavailable" when no provider is available.
+- **QuickShop:** owner revenue is `getBalance`, confirmed from real purchases. Fixed two bugs: the listener saw every QuickShop event, and trades into buying shops counted as revenue.
+- **ChestShop:** creation inside a booth is limited to the renter and trusted members, with no admin shops. Only BUY transactions count. Reset removes shop signs.
+- **mc-PlayerShop:** pinned to exactly 1.5.1. Reset journals its database-held stock exactly once, then deletes the shop directly. Its menus are blocked in denied booths, because it ignores cancelled clicks. Sales come from its transaction records.
+- **Protection fix:** click protection now runs at `LOWEST`. Before, a ChestShop shop in a suspended or denied booth still traded, because ChestShop acts at `LOW`.
+- **Release gates:** checked hologram chunk reload, rented-booth redstone, missing-schematic reset safety, the scanner region edge and scan timing (`run.ps1 -Mode gates`).
+- Clean build: 39 tests. Artifact SHA-256 `AABDB0D31456E4131184D6612E54AD983D08B7A2C0795E325617B1612888275E`. Five-start sequence passed with no shop plugin, each alone, and all three together.
+
 ## 2026-10-11 — whole-storage claim-all
 
 - Added a **Claim all storage** recovery action, separate from **Claim all on page**. It walks every available entry up to the highest ID present when the pass started. Each tick checks at most 16 entries and delivers at most one receipt per player. Items that do not fit stay in recovery.

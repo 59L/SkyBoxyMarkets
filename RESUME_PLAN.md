@@ -184,7 +184,18 @@ The harness asserts a shop protection matrix (PUBLIC/PRIVATE/LOCKED × renter/me
 
 ### Step 6 — Release gates carried over from Codex
 
-Unchanged from `FEATURE_STATUS.md`; none were closed by the shop work.
+Progress on 2026-10-11 (Claude). Only the gates the harness can automate were worked; run them with `run.ps1 -Mode gates` (log `final-gates`).
+
+| Gate | State after this pass |
+|---|---|
+| 1 Item recovery | Open. No new work; power loss and real player-file crashes cannot be produced in this harness. |
+| 2 Protection | Partly closed. Redstone in a rented booth is forced to 0 current. The shop matrix (PUBLIC/PRIVATE/LOCKED × renter/member/visitor) passes. Real event-order dispatch exposed and fixed the `HIGHEST` → `LOWEST` interact bug. The production WorldGuard flags and the ban semantics question remain. |
+| 3 Reset | Partly closed. A missing schematic halts the reset before anything is touched: no journal entries, world intact, booth locked. Once the style returns, resume completes and journals once. **Finding:** a halted reset is retried only at startup, never at runtime, so the booth stays locked until a restart or reload. `World.save(true)` measured ~8 ms per call on the scratch world (first call ~350–475 ms); this is not production TPS. Missing world and the remaining crash boundaries are still open. |
+| 4 Scanner | Partly closed. A complete booth crossing the region edge is not registered. A full scan of the ~240k-position fixture region took 9.6 s at default budgets; extrapolated linearly, the 15M maximum would take about 10 minutes. Ambiguous overlaps were not tested. |
+| 5 Menus | Open. Style-version migrations and per-booth overrides are unbuilt features, not missing tests. |
+| 6 Holograms | Closed for the tested case. After a real chunk unload and reload, exactly one TextDisplay and one Interaction respawn. |
+| 7 Supported Paper/economy | Blocked. EssentialsX 2.22.0 is the newest release and lists support only up to 26.1.2, while the plugin needs `api-version 26.2`. This needs a newer EssentialsX or another Vault economy plugin. FAWE 2.16.1 and WorldGuard 7.0.19 now list 26.2. |
+| 8 Real-player GUI | Open; needs a human client. |
 
 1. Item recovery (release-blocking): real player-file crash boundaries, power loss, unusual block entities, full sign and tile-state fidelity.
 2. Protection (release-blocking): full role/action matrix, production WorldGuard event ordering, redstone.
@@ -195,7 +206,9 @@ Unchanged from `FEATURE_STATUS.md`; none were closed by the shop work.
 7. A supported Paper and economy combination (EssentialsX 2.22.0 warns on Paper 26.2).
 8. Real-player GUI checks. These need a human client and cannot be closed by the harness.
 
-### Step 7 — Release handoff
+### Step 7 — Release handoff — artifact ready 2026-10-11, NOT installed
+
+Clean `clean test shadowJar`: 39 tests, SHA-256 `AABDB0D31456E4131184D6612E54AD983D08B7A2C0795E325617B1612888275E`. Final runs: `final-all` and `final-none` passed the five-start sequence, and `final-gates` passed. Nothing was installed to `PluginsNew`. Release gates 1, 5, 7 and 8 are still open, so this is still a development build. Installing it on the live server needs the owner's explicit go-ahead.
 
 Clean build, full five-start sequence, final SHA-256, documentation matching behavior. Only then propose installing on the live server, and ask first.
 

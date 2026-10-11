@@ -37,4 +37,14 @@ Updated 2026-10-11. `Verified` describes only the scenarios listed below. This r
 
 ## Release gate
 
-Do not deploy to a live player economy or valuable world. Remaining gates include a supported production Paper/economy compatibility run, real-player GUI checks, the complete WorldGuard/protection matrix, power-loss and additional crash tests at reset and claim boundaries, full block-entity fidelity, style-version migrations/per-booth overrides, and QuickShop-Hikari tests against an exact target JAR. The single abrupt-JVM test proves only recovery after one flushed reset batch. The current artifact proves only the scenarios listed above.
+Do not deploy to a live player economy or valuable world. Remaining gates:
+
+- a supported production Paper/economy combination (no EssentialsX release lists Paper 26.2 yet);
+- real-player GUI checks;
+- production WorldGuard flags and a human-session protection pass;
+- power-loss and further crash tests at reset and claim boundaries;
+- full block-entity fidelity;
+- style-version migrations and per-booth overrides, which are unbuilt;
+- the live server's exact ChestShop JAR.
+
+Step 6 closed hologram chunk reload, rented-booth redstone, missing-schematic reset safety, and the scanner region edge; see `RESUME_PLAN.md` Step 6 for the table and the runtime-retry finding. Shop providers are verified for the scenarios in their rows. The single abrupt-JVM test proves only recovery after one flushed reset batch. The current artifact proves only the scenarios listed above.
