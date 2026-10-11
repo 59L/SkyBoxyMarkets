@@ -74,7 +74,7 @@ final class MarketRecovery implements Listener {
                 throw new IllegalStateException("Unknown reset phase "+r.phase()+" for booth "+b.id);
             }
             // Items have been committed before world destruction. Shop provider cleanup must succeed first.
-            if(p.quickShop!=null)p.quickShop.removeShops(b);
+            p.shops.detach(b);
             removeBoothEntities(b,w);
             startRestore(b,w,t,r,restoreCursor);
             restoreScheduled=true;

@@ -34,7 +34,7 @@ public final class SkyBoxyMarket extends JavaPlugin implements Listener {
     MarketHolograms holograms;
     MarketMenus menus;
     Economy economy;
-    QuickShopBridge quickShop;
+    ShopProviders shops;
     final Map<UUID,Long> lastDenied = new HashMap<>();
     @Override public void onEnable(){
         saveDefaultConfig();
@@ -59,7 +59,7 @@ public final class SkyBoxyMarket extends JavaPlugin implements Listener {
         setupEconomy();
         reloadStyles();
         scanner=new MarketScanner(this);holograms=new MarketHolograms(this);
-        quickShop=new QuickShopBridge(this);
+        shops=new ShopProviders(List.of(new QuickShopBridge(this)));
         recovery=new MarketRecovery(this);rentals=new MarketRentals(this);menus=new MarketMenus(this);
         getServer().getPluginManager().registerEvents(new MarketProtection(this),this);
         getServer().getPluginManager().registerEvents(recovery,this);

@@ -415,9 +415,9 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
     getLogger().info("HOLOGRAM PASS repeated refresh kept one TextDisplay and one Interaction for each of "+verified+" loaded booths");
   }
   private void testOptionalShopFailsClosed(Object market,List<?> booths)throws Exception{
-    Object bridge=field(market,"quickShop");
+    Object bridge=((List<?>)call(field(market,"shops"),"all",new Class<?>[0])).getFirst();
     if(Boolean.TRUE.equals(call(bridge,"available",new Class<?>[0])))throw new IllegalStateException("QuickShop is not installed in this isolated acceptance server, but the bridge reported itself available");
-    Object booth=booths.getFirst();call(bridge,"removeShops",new Class<?>[]{booth.getClass()},booth);
+    Object booth=booths.getFirst();call(field(market,"shops"),"detach",new Class<?>[]{booth.getClass()},booth);
     getLogger().info("QUICKSHOP FAIL-CLOSED PASS unavailable optional API did not enable shop deletion or sale accounting");
   }
   private void testResetAndRecovery(Object market,List<?> booths,Map<?,?> templates,File restartMarker) throws Exception {

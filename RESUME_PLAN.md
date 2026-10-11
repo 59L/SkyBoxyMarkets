@@ -110,7 +110,9 @@ CHANGELOG, the CODEX execution record and README now describe claim-all. `docs/R
 
 **Done when:** the three status documents agree on test count, hash and claim-all state.
 
-### Step 1 — Shop provider abstraction (no behavior change)
+### Step 1 — Shop provider abstraction (no behavior change) — CODE DONE 2026-10-11, Paper check pending
+
+`ShopProviders.java` holds the interface and the registry; `QuickShopBridge` implements it, and every call site has moved. Sale idempotency is durable: the `shop_sales` table, migration 5. Visible changes: diagnostics now show per-provider state, and sales read "unavailable" when no provider is available. 39 unit tests pass. Still open: the absent-provider Paper fail-closed check, which waits on rebuilding the scratch server (section 2.3) and the eight-booth test world. The `mc-PlayerShop` softdepend name is a guess until its `plugin.yml` is read in Step 4.
 
 Replace the single `QuickShopBridge` field with a provider interface so three plugins can coexist.
 

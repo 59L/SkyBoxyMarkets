@@ -78,8 +78,8 @@ final class MarketProtection implements Listener {
         if(e.getAction()!=Action.RIGHT_CLICK_BLOCK)return;
         Material mat=block.getType();String rule;
         if(block.getState() instanceof Container){
-            // Confirmed QuickShop containers are purchase interfaces. Ordinary private storage is not.
-            rule=p.quickShop!=null&&p.quickShop.shopAt(block.getLocation())?"shop-interact":"containers";
+            // Confirmed shop-provider containers are purchase interfaces. Ordinary private storage is not.
+            rule=p.shops.shopAt(block.getLocation())?"shop-interact":"containers";
         }else if(mat.name().contains("DOOR")||mat.name().contains("TRAPDOOR")||mat.name().contains("GATE"))rule="doors";
         else if(mat.name().contains("BUTTON")||mat.name().contains("LEVER")||mat.name().contains("PRESSURE_PLATE"))rule="buttons";
         else if(mat.name().contains("SIGN"))rule="shop-interact";

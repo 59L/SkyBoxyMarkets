@@ -6,7 +6,7 @@ author: SkyBoxy
 website: https://github.com/59L
 load: POSTWORLD
 depend: [WorldGuard, Vault]
-softdepend: [FastAsyncWorldEdit, WorldEdit, QuickShop-Hikari, QuickShop]
+softdepend: [FastAsyncWorldEdit, WorldEdit, QuickShop-Hikari, QuickShop, ChestShop, mc-PlayerShop]
 commands:
   market:
     description: SkyBoxy player marketplace

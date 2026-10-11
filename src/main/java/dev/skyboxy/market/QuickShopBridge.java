@@ -12,13 +12,13 @@ import java.lang.reflect.Method;
 import java.util.*;
 
 /** Optional reflection-only bridge against the QuickShop-Hikari 6.3 public API. */
-final class QuickShopBridge {
+final class QuickShopBridge implements ShopProvider {
     private final SkyBoxyMarket p;
     private final Object shopManager;
     private final Class<?> shopInterface;
-    private final boolean available;
+    private final Status status;
     QuickShopBridge(SkyBoxyMarket p){
-        this.p=p;Object mgr=null;Class<?> clazz=null;boolean ok=false;
+        this.p=p;Object mgr=null;Class<?> clazz=null;Status st=Status.ABSENT;
         try{
             Plugin quick=Arrays.stream(Bukkit.getPluginManager().getPlugins())
                     .filter(t->t.getName().toLowerCase(Locale.ROOT).contains("quickshop")&&t.isEnabled()).findFirst().orElse(null);
@@ -38,18 +38,20 @@ final class QuickShopBridge {
                 @SuppressWarnings("unchecked") Class<? extends Event> eventClass=(Class<? extends Event>)success;
                 Listener listener=new Listener() {};
                 Bukkit.getPluginManager().registerEvent(eventClass,listener,EventPriority.MONITOR,(ignored,event)->recordSale(event),p,true);
-                mgr=candidateManager;clazz=shopType;ok=true;
+                mgr=candidateManager;clazz=shopType;st=Status.AVAILABLE;
                 p.getLogger().info("QuickShop-Hikari public API signatures verified; success-purchase event hooked.");
             }
         }catch(Exception ex){
-            mgr=null;clazz=null;ok=false;
+            mgr=null;clazz=null;st=Status.INCOMPATIBLE;
             p.getLogger().warning("QuickShop bridge disabled because the installed API is unavailable or incompatible: "+ex.getMessage());
         }
-        shopManager=mgr;shopInterface=clazz;available=ok;
+        shopManager=mgr;shopInterface=clazz;status=st;
     }
-    boolean available(){return available;}
-    boolean shopAt(Location location){
-        if(!available)return false;
+    @Override public String name(){return "QuickShop-Hikari";}
+    @Override public Status status(){return status;}
+    boolean available(){return status==Status.AVAILABLE;}
+    @Override public boolean shopAt(Location location){
+        if(!available())return false;
         try{return shopManager.getClass().getMethod("getShopIncludeAttached",Location.class).invoke(shopManager,location)!=null;}
         catch(Exception ex){return false;}
     }
@@ -57,8 +59,8 @@ final class QuickShopBridge {
         return shopManager.getClass().getMethod("getShopIncludeAttached",Location.class).invoke(shopManager,location);
     }
     /** Deletion is performed via QuickShop's public ShopManager rather than manipulating its DB. */
-    void removeShops(Booth booth)throws Exception{
-        if(!available)return;
+    @Override public void detach(Booth booth)throws Exception{
+        if(!available())return;
         for(int x=booth.x;x<booth.x+booth.width;x++)for(int y=booth.y;y<booth.y+booth.height;y++)for(int z=booth.z;z<booth.z+booth.length;z++){
             Block block=Bukkit.getWorld(booth.world).getBlockAt(x,y,z);
             if(!(block.getState() instanceof Container))continue;
@@ -78,11 +80,11 @@ final class QuickShopBridge {
             Object shop=e.getClass().getMethod("getShop").invoke(e);
             if(shop==null)return;
             Location location=(Location)shop.getClass().getMethod("getLocation").invoke(shop);
-            Booth b=p.at(location);if(b==null||b.owner==null)return;
+            Booth b=p.at(location);
             Object total=e.getClass().getMethod("getTotal").invoke(e);
             if(!(total instanceof Number number))return;
-            double amount=number.doubleValue();if(!Double.isFinite(amount)||amount<0)return;
-            b.sales+=amount;p.db.save(b);
+            // ponytail: QuickShop events carry no ID, so each delivery gets a fresh key; replay dedupe matters for providers with stored records.
+            ShopProviders.recordSale(p.db,b,name(),UUID.randomUUID().toString(),number.doubleValue());
         }catch(Exception ex){p.getLogger().fine("Could not track a QuickShop sale: "+ex.getMessage());}
     }
 }

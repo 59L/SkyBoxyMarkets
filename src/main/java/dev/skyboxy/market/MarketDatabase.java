@@ -50,6 +50,7 @@ final class MarketDatabase implements AutoCloseable {
                   created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)
                 """);
             s.execute("CREATE INDEX IF NOT EXISTS payment_intents_status_created ON payment_intents(status,created_at)");
+            s.execute("CREATE TABLE IF NOT EXISTS shop_sales(provider TEXT NOT NULL,sale_key TEXT NOT NULL,booth TEXT NOT NULL,amount REAL NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(provider,sale_key))");
         }
         ensureColumn("placed","item","BLOB");
         ensureColumn("recovery","claim_state","INTEGER NOT NULL DEFAULT 0");
@@ -64,7 +65,20 @@ final class MarketDatabase implements AutoCloseable {
             s.executeUpdate("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(2,"+System.currentTimeMillis()+")");
             s.executeUpdate("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(3,"+System.currentTimeMillis()+")");
             s.executeUpdate("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(4,"+System.currentTimeMillis()+")");
+            s.executeUpdate("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(5,"+System.currentTimeMillis()+")");
         }
+    }
+    /** Adds a shop sale to the booth once per (provider,key); returns false for a replay. */
+    synchronized boolean recordShopSale(Booth b,String provider,String key,double amount) throws SQLException {
+        double oldSales=b.sales;boolean auto=conn.getAutoCommit();conn.setAutoCommit(false);
+        try{
+            try(PreparedStatement p=conn.prepareStatement("INSERT OR IGNORE INTO shop_sales(provider,sale_key,booth,amount,at) VALUES(?,?,?,?,?)")){
+                p.setString(1,provider);p.setString(2,key);p.setString(3,b.id);p.setDouble(4,amount);p.setLong(5,System.currentTimeMillis());
+                if(p.executeUpdate()==0){conn.rollback();return false;}
+            }
+            b.sales+=amount;save(b);conn.commit();return true;
+        }catch(Exception e){conn.rollback();b.sales=oldSales;if(e instanceof SQLException sql)throw sql;throw new SQLException("Shop sale transaction failed",e);}
+        finally{conn.setAutoCommit(auto);}
     }
     private void ensureColumn(String table,String column,String declaration)throws SQLException {
         boolean exists=false;
