@@ -142,7 +142,10 @@ Results are in the `FEATURE_STATUS.md` QuickShop row. Owner revenue is `getBalan
 
 **Done when:** the QuickShop row in `FEATURE_STATUS.md` can cite real runs against this exact JAR.
 
-### Step 3 — ChestShop 3.12.2
+### Step 3 — ChestShop 3.12.2 — DONE 2026-10-11
+
+`ChestShopProvider` is in place; results are in the `FEATURE_STATUS.md` ChestShop row. The real event-order test found and fixed a protection bug: interact protection moved from `HIGHEST` to `LOWEST`. Open question for the owner: `allowed()` checks reset/suspension and role policy, but not bans or access modes, which only gate entry. A banned player who can reach a booth's shop sign or block from outside can still trade with it.
+
 
 This is the provider already on the live server, so it matters most for production.
 

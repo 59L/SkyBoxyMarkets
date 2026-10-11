@@ -68,7 +68,8 @@ final class MarketProtection implements Listener {
         try{p.db.breakPlaced(b,e.getBlock().getX(),e.getBlock().getY(),e.getBlock().getZ());}
         catch(Exception ex){p.getLogger().severe("Could not untrack broken block: "+ex);}
     }
-    @EventHandler(priority=EventPriority.HIGHEST,ignoreCancelled=true)
+    // LOWEST: shop plugins act on clicks early (ChestShop trades at LOW), so a denial must land before them.
+    @EventHandler(priority=EventPriority.LOWEST,ignoreCancelled=true)
     public void interact(PlayerInteractEvent e){
         Block block=e.getClickedBlock();if(block==null)return;
         Player player=e.getPlayer();Booth b=p.at(block.getLocation());
