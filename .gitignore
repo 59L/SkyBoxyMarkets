@@ -8,3 +8,6 @@
 /.temp/
 *.class
 *.log
+
+# Per-task Claude usage log (machine-local)
+/TASK_USAGE.txt

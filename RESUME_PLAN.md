@@ -14,9 +14,9 @@ Codex's last session implemented the whole-storage "claim all" recovery action a
 | Built JAR | `build/libs/SkyBoxyMarket-1.0.0-SNAPSHOT.jar`, SHA-256 `72B260512F7149E2BA8CCE4BC9F982820849095151DB88729D2FA86B9AE8F696` |
 | Last Paper acceptance | `claim-all-offline-full-{1..5}` five-start sequence passed at 01:14, after the JAR was built at 01:11 |
 | `FEATURE_STATUS.md` | Current: describes claim-all and the 35-test build |
-| `CHANGELOG.md` | Stale: top entry still says 32 tests, hash `2DE05769…`, claim-all open |
-| `CODEX_IMPLEMENTATION_PLAN.md` | Stale: last execution record is "partial claims and receipt ordering"; no claim-all record |
-| Git | Claim-all work was uncommitted in the working tree at handoff |
+| `CHANGELOG.md` | Current since Step 0 |
+| `CODEX_IMPLEMENTATION_PLAN.md` | Current since Step 0: has a claim-all execution record |
+| Git | Claim-all is in the remote's initial commit `b5a1f9c` |
 
 Claim-all lives in `MarketRecovery.claimAll` / `ClaimAllJob` and the `claimall` action in `MarketMenus`. The last bug Codex fixed there was a queued page action delivering to a disconnected player; the fix added online checks on the menu, direct-delivery and all-pass routes.
 
@@ -49,6 +49,12 @@ The scratch server is `.temp/paper-smoke/` (Paper `26.2-121`, FAWE `2.15.2`, Wor
 - `.temp/paper-smoke/run-full-sequence.ps1 -LogPrefix <name>` runs the five-start sequence: full acceptance, `SNAPSHOTTING` restart, cursor-32 `RESTORING` restart, deliberate `Runtime.halt(73)`, post-halt recovery. It ends with `FULL SEQUENCE PASS`.
 - Each start has a 45-second window; if a server is still alive after that, the scripts stop rather than start another. Check for a leftover Java process before re-running.
 - Logs are `<prefix>-N.out.log` / `.err.log` in the same directory. Codex's convention is a `-red` log reproducing a bug before a `-green` log of the fix.
+
+### 2.2a Claude machine (rebuilt 2026-10-11)
+
+- JDK: `C:\Program Files\Java\jdk-25.0.2`. Paper `26.2-124` (Codex used 121). FAWE 2.15.2, WorldGuard 7.0.17 and EssentialsX 2.22.0 come from Modrinth; Vault 1.7.3 from its GitHub release. Downloads are in `.temp/downloads/`.
+- One script, `.temp/paper-smoke/run.ps1 -Mode setup|claims|full -LogPrefix <name> [-Shops none|quickshop|chestshop|playershop|all|a,b] [-TimeoutSec n]`, replaces the two Codex scripts. It packages the harness as `SkyBoxyMarketSmoke.jar`, installs the selected shop JARs from the project root, and restores the 8-booth fixture from `.temp/paper-smoke-baseline/` before every claims/full run. `full` prints `FULL SEQUENCE PASS`.
+- `-Mode setup` builds the fixture: `PaperAcceptanceHarness.setupAcceptanceWorld` pastes both styles at rotations 0–3 into a flat world inside the WorldGuard region `marketmain` (x -8..170, y -61..-45, z -8..70), and the production scanner registers them. This is test-only; the plugin itself never generates booths.
 
 ### 2.3 Rebuilding the environment on another machine
 
@@ -100,7 +106,9 @@ These were read from the JARs with `javap`. None of it has been run on a server 
 
 Work in order. Each step ends with the clean build passing, the relevant Paper acceptance passing, `FEATURE_STATUS.md` updated honestly, and a commit.
 
-### Step 0 — Close out Codex's claim-all session
+### Step 0 — Close out Codex's claim-all session — DONE 2026-10-11
+
+CHANGELOG, the CODEX execution record and README now describe claim-all. `docs/RECOVERY.md` already matched the code. Claim-all was already in the remote's initial commit. A clean rebuild on the Claude machine (JDK 25.0.2 at `C:\Program Files\Java\jdk-25.0.2`) passes 35 tests with hash `F29649E9…`; see `FEATURE_STATUS.md`.
 
 - Add a `CHANGELOG.md` entry and a `CODEX_IMPLEMENTATION_PLAN.md` execution record for claim-all, citing the `claim-all-*` logs, 35 tests and the `72B26051…` artifact.
 - Check that `docs/RECOVERY.md` and `README.md` describe claim-all the way the code behaves (16 entries per pass, one receipt per tick per player, leftovers stay in recovery).
@@ -108,7 +116,9 @@ Work in order. Each step ends with the clean build passing, the relevant Paper a
 
 **Done when:** the three status documents agree on test count, hash and claim-all state.
 
-### Step 1 — Shop provider abstraction (no behavior change)
+### Step 1 — Shop provider abstraction (no behavior change) — DONE 2026-10-11
+
+`ShopProviders.java` holds the interface and the registry; `QuickShopBridge` implements it, and every call site has moved. Sale idempotency is durable: the `shop_sales` table, migration 5. Visible changes: diagnostics now show per-provider state, and sales read "unavailable" when no provider is available. 39 unit tests pass. The full five-start sequence passed with no shop plugin installed (`step1-noshop-{1..5}`). The `mc-PlayerShop` softdepend name matches that JAR's `plugin.yml`.
 
 Replace the single `QuickShopBridge` field with a provider interface so three plugins can coexist.
 
@@ -120,7 +130,10 @@ Replace the single `QuickShopBridge` field with a provider interface so three pl
 
 **Done when:** unit tests with a fake provider cover precedence, detach failure keeping the booth locked, and sale idempotency; the existing absent-provider fail-closed Paper check still passes.
 
-### Step 2 — QuickShop-Hikari 6.3.0.3
+### Step 2 — QuickShop-Hikari 6.3.0.3 — DONE 2026-10-11
+
+Results are in the `FEATURE_STATUS.md` QuickShop row. Owner revenue is `getBalance`, not `getBalanceWithoutTax`. Two bridge bugs were fixed: the listener ignored the event type (QuickShop events share a HandlerList), and the bridge counted buying-shop trades as revenue. Shop JARs come from Modrinth; QuickShop-Hikari and mc-PlayerShop match the section 3 hashes. `run.ps1 -Shops quickshop` pre-seeds a QuickShop config that charges tax to the owner.
+
 
 - Replace the `getTotal()` requirement. Decide between `getBalance()` and `getBalanceWithoutTax()` by observing a real purchase; record which one is owner revenue.
 - Use `bukkitLocation()`; confirm deletion through `ShopDeleteEvent` or the manager lookup rather than assuming `deleteShop` is synchronous.
@@ -129,7 +142,10 @@ Replace the single `QuickShopBridge` field with a provider interface so three pl
 
 **Done when:** the QuickShop row in `FEATURE_STATUS.md` can cite real runs against this exact JAR.
 
-### Step 3 — ChestShop 3.12.2
+### Step 3 — ChestShop 3.12.2 — DONE 2026-10-11
+
+`ChestShopProvider` is in place; results are in the `FEATURE_STATUS.md` ChestShop row. The real event-order test found and fixed a protection bug: interact protection moved from `HIGHEST` to `LOWEST`. Open question for the owner: `allowed()` checks reset/suspension and role policy, but not bans or access modes, which only gate entry. A banned player who can reach a booth's shop sign or block from outside can still trade with it.
+
 
 This is the provider already on the live server, so it matters most for production.
 
@@ -141,7 +157,10 @@ This is the provider already on the live server, so it matters most for producti
 
 **Done when:** the same acceptance cases as Step 2 pass for ChestShop, including a double-chest shop.
 
-### Step 4 — mc-PlayerShop 1.5.1
+### Step 4 — mc-PlayerShop 1.5.1 — DONE 2026-10-11
+
+`PlayerShopProvider` is in place; results are in the `FEATURE_STATUS.md` row. Sales are readable from its transaction records, so "unavailable" was not needed. The real-JVM-crash variant of the fault tests is still open; the in-process repeat passed.
+
 
 Highest risk of the three, because stock is outside the world and there is no API.
 
@@ -154,7 +173,10 @@ Highest risk of the three, because stock is outside the world and there is no AP
 
 **Done when:** stock held in mc-PlayerShop's database is returned exactly once through `/market recover` across a restart, or the provider is explicitly reported as unsupported with the reason.
 
-### Step 5 — Multi-provider acceptance and documentation
+### Step 5 — Multi-provider acceptance and documentation — DONE 2026-10-11 (see the Step 5 runs in FEATURE_STATUS)
+
+The harness asserts a shop protection matrix (PUBLIC/PRIVATE/LOCKED × renter/member/visitor: everyone may use shops, only renter and members open storage) in every run, and each provider test adds the storage-closed check against a real shop. COMPATIBILITY, CONFIGURATION and RECOVERY are updated.
+
 
 - Run the scratch server with all three installed, and with each one alone, and with none.
 - Extend the protection matrix with the shop cases: visitor buys but cannot open storage, for every provider and every access mode.
@@ -162,7 +184,18 @@ Highest risk of the three, because stock is outside the world and there is no AP
 
 ### Step 6 — Release gates carried over from Codex
 
-Unchanged from `FEATURE_STATUS.md`; none were closed by the shop work.
+Progress on 2026-10-11 (Claude). Only the gates the harness can automate were worked; run them with `run.ps1 -Mode gates` (log `final-gates`).
+
+| Gate | State after this pass |
+|---|---|
+| 1 Item recovery | Open. No new work; power loss and real player-file crashes cannot be produced in this harness. |
+| 2 Protection | Partly closed. Redstone in a rented booth is forced to 0 current. The shop matrix (PUBLIC/PRIVATE/LOCKED × renter/member/visitor) passes. Real event-order dispatch exposed and fixed the `HIGHEST` → `LOWEST` interact bug. The production WorldGuard flags and the ban semantics question remain. |
+| 3 Reset | Partly closed. A missing schematic halts the reset before anything is touched: no journal entries, world intact, booth locked. Once the style returns, resume completes and journals once. **Finding:** a halted reset is retried only at startup, never at runtime, so the booth stays locked until a restart or reload. `World.save(true)` measured ~8 ms per call on the scratch world (first call ~350–475 ms); this is not production TPS. Missing world and the remaining crash boundaries are still open. |
+| 4 Scanner | Partly closed. A complete booth crossing the region edge is not registered. A full scan of the ~240k-position fixture region took 9.6 s at default budgets; extrapolated linearly, the 15M maximum would take about 10 minutes. Ambiguous overlaps were not tested. |
+| 5 Menus | Open. Style-version migrations and per-booth overrides are unbuilt features, not missing tests. |
+| 6 Holograms | Closed for the tested case. After a real chunk unload and reload, exactly one TextDisplay and one Interaction respawn. |
+| 7 Supported Paper/economy | Blocked. EssentialsX 2.22.0 is the newest release and lists support only up to 26.1.2, while the plugin needs `api-version 26.2`. This needs a newer EssentialsX or another Vault economy plugin. FAWE 2.16.1 and WorldGuard 7.0.19 now list 26.2. |
+| 8 Real-player GUI | Open; needs a human client. |
 
 1. Item recovery (release-blocking): real player-file crash boundaries, power loss, unusual block entities, full sign and tile-state fidelity.
 2. Protection (release-blocking): full role/action matrix, production WorldGuard event ordering, redstone.
@@ -173,13 +206,15 @@ Unchanged from `FEATURE_STATUS.md`; none were closed by the shop work.
 7. A supported Paper and economy combination (EssentialsX 2.22.0 warns on Paper 26.2).
 8. Real-player GUI checks. These need a human client and cannot be closed by the harness.
 
-### Step 7 — Release handoff
+### Step 7 — Release handoff — artifact ready 2026-10-11, NOT installed
+
+Clean `clean test shadowJar`: 39 tests, SHA-256 `AABDB0D31456E4131184D6612E54AD983D08B7A2C0795E325617B1612888275E`. Final runs: `final-all` and `final-none` passed the five-start sequence, and `final-gates` passed. Nothing was installed to `PluginsNew`. Release gates 1, 5, 7 and 8 are still open, so this is still a development build. Installing it on the live server needs the owner's explicit go-ahead.
 
 Clean build, full five-start sequence, final SHA-256, documentation matching behavior. Only then propose installing on the live server, and ask first.
 
 ## 5. Decisions needed from the owner
 
-These do not block Steps 0–1.
+Answered by the owner on 2026-10-11: support and test all three providers equally; no admin shops inside rented booths; "sales unavailable" is acceptable for mc-PlayerShop if its records cannot be read reliably.
 
 1. Which shop plugin will the market actually use in production? ChestShop is live today; the other two are not installed. Supporting all three is planned, but the answer sets test priority.
 2. Should admin shops be allowed inside rented booths?

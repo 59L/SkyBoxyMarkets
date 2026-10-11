@@ -111,7 +111,7 @@ final class MarketMenus implements Listener {
             put(s,20,Material.EMERALD,"&aRent booth","&7Cost: $"+money(style.price)+"\n&7Duration: "+style.durationHours+" hours\n&7Permission: "+restriction,"rentconfirm:"+b.id);
         }else {
             put(s,19,Material.ENDER_PEARL,"&bTeleport to booth","&7Only works when access allows entry","tp:"+b.id);
-            put(s,20,Material.BOOK,"&fMarket Statistics","&7Visits: "+b.visits+"\n&7Unique visitors: "+b.uniqueVisitors+"\n&7Sales: "+money(b.sales)+" (integration required)","stats:"+b.id);
+            put(s,20,Material.BOOK,"&fMarket Statistics","&7Visits: "+b.visits+"\n&7Unique visitors: "+b.uniqueVisitors+"\n&7Sales: "+sales(b),"stats:"+b.id);
             if(manager||admin){
                 put(s,21,Material.CLOCK,"&aRenew Rental","&7Cost: $"+money(style.renewalPrice),"renew:"+b.id);
                 put(s,22,Material.PAINTING,"&eWall Colors",null,"walls:"+b.id);
@@ -150,7 +150,7 @@ final class MarketMenus implements Listener {
         Screen s=screen("Market Statistics");
         put(s,11,Material.COMPASS,"&eTotal Visits","&f"+b.visits,"noop");
         put(s,13,Material.PLAYER_HEAD,"&eUnique Visitors","&f"+b.uniqueVisitors,"noop");
-        put(s,15,Material.GOLD_INGOT,"&eTracked Sales","&f$"+money(b.sales)+"\n&7Requires supported shop integration","noop");
+        put(s,15,Material.GOLD_INGOT,"&eTracked Sales","&f"+sales(b),"noop");
         put(s,29,Material.CLOCK,"&fRental Expiration","&7"+new Date(b.expiry),"noop");
         put(s,33,Material.OAK_SIGN,"&fBooth Style","&7"+b.style,"noop");
         controls(s,null,null,"detail:"+b.id);show(u,s);
@@ -271,11 +271,14 @@ final class MarketMenus implements Listener {
         boolean worldEdit=Bukkit.getPluginManager().isPluginEnabled("WorldEdit")||Bukkit.getPluginManager().isPluginEnabled("FastAsyncWorldEdit");
         put(s,10,Material.BOOK,"&eDatabase: "+integrity,"&7Resets pending: "+resets+"\n&7Recovery entries available: "+recovery+"\n&7Claims in flight: "+inFlight+"\n&7Payment reviews: "+payments,"noop");
         put(s,12,Material.MAP,"&eBooths / Styles","&7Registered: "+p.booths.size()+"\n&7Configured styles: "+p.styles.size()+"\n&7Loaded templates: "+p.templates.enabled().size(),"noop");
-        put(s,14,Material.ENDER_EYE,"&eProviders","&7WorldGuard: "+state(worldGuard)+"\n&7WorldEdit/FAWE: "+state(worldEdit)+"\n&7Vault economy: "+state(p.economy!=null)+"\n&7QuickShop: "+state(p.quickShop!=null&&p.quickShop.available()),"noop");
+        put(s,14,Material.ENDER_EYE,"&eProviders","&7WorldGuard: "+state(worldGuard)+"\n&7WorldEdit/FAWE: "+state(worldEdit)+"\n&7Vault economy: "+state(p.economy!=null)+shopStates(),"noop");
         put(s,16,Material.CLOCK,"&eScanner","&7"+p.scanner.progress(),"noop");
         put(s,49,Material.BARRIER,"&cBack",null,"admin");show(u,s);
     }
     private static String state(boolean enabled){return enabled?"&aavailable":"&cnot available";}
+    private String shopStates(){StringBuilder out=new StringBuilder();for(ShopProvider s:p.shops.all())out.append("\n&7").append(s.name()).append(": ").append(switch(s.status()){case AVAILABLE->"&aavailable";case ABSENT->"&7absent";case INCOMPATIBLE->"&cincompatible";});return out.toString();}
+    // Never show a bare 0 when no shop plugin can report sales.
+    private String sales(Booth b){return p.shops.anyAvailable()?"$"+money(b.sales):"unavailable (no compatible shop plugin)";}
     void adminBooths(Player u,int page){
         List<Booth> all=p.booths.stream().sorted(Comparator.comparing((Booth b)->b.style).thenComparing(b->b.id)).toList();
         Screen s=screen("Manage Markets");int start=page*PAGE_SIZE;

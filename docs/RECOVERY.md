@@ -12,6 +12,16 @@ Placed blocks are represented by the placing item with the current Bukkit block 
 
 The recovery uniqueness key is `(lease, source, slot)`. Retrying a `SNAPSHOTTING` reset re-reads the still-present world and ignores entries already committed. Only after the snapshot is finished does the reset enter `RESTORING`, detach supported shops, remove captured entities, and restore the schematic in `market.reset-blocks-per-tick` batches. Each batch flushes world storage before committing its idempotent SQLite cursor; a crash before cursor commit replays the last batch. This adds a synchronous world-save cost during reset. The lease and player decorations are cleared from SQLite only after restoration succeeds. Startup recovery loads the reset booth's chunks itself before snapshot or restore. If its world, style file, or chunk cannot be loaded, the reset row and lease stay intact and the booth remains locked; other reset rows are still attempted.
 
+## Shop plugins on reset
+
+A shop is detached after the snapshot and before restoration. If a detach fails, the reset stops with the journal and lease intact, the booth stays locked, and the reset is retried.
+
+| Provider | Where stock lives | What reset does |
+|---|---|---|
+| QuickShop-Hikari 6.3.0.3 | The shop container | The snapshot journals the container. The shop is deleted through `ShopManager.deleteShop`, and the reset continues only once the manager no longer reports it. |
+| ChestShop 3.12.2 | The shop container | The snapshot journals the container, including both halves of a double chest. Every valid shop sign in the booth is then removed. ChestShop keeps no registry, so that removes the shops. |
+| mc-PlayerShop 1.5.1 | mc-PlayerShop's own database, not the block | The provider closes the shop's open menus and journals its stored stock under source `mcplayershop:<shopId>`, one slot per entry. It then deletes the storage and shop rows and removes the shop from mc-PlayerShop's caches. A restart between steps cannot journal twice, because the ledger ignores a repeated `(lease, source, slot)`. mc-PlayerShop's own removal is not used: it hands the stock to the acting player. |
+
 ## Claim order
 
 The `/market recover` menu shows available entries in pages of 45. Item, page, and whole-storage claims deliver as many items as fit in matching stacks and empty storage slots. Any remainder stays in recovery. Each delivery follows this order:

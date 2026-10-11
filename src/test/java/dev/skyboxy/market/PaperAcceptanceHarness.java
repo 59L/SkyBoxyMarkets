@@ -86,6 +86,9 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
     try {
       Object market=Bukkit.getPluginManager().getPlugin("SkyBoxyMarket");
       if(market==null) throw new IllegalStateException("SkyBoxyMarket did not enable");
+      File setupFlag=new File(getDataFolder(),"setup-world.flag");
+      if(setupFlag.isFile()){setupAcceptanceWorld(market,setupFlag);return;}
+      if(new File(getDataFolder(),"gates.flag").isFile()){testReleaseGates(market);return;}
       if(new File(getDataFolder(),"claims-only.flag").isFile()){
         testMergedReceiptDeath(market);testPartialRecoveryClaims(market);testDeathRecoveryReceipt(market);testPartialClaimFaults(market);testRecoveryClaimMenus(market);
         testWholeRecoveryClaims(market,()->{getLogger().info("CLAIM ACCEPTANCE PASS");Bukkit.getScheduler().runTaskLater(this,Bukkit::shutdown,10L);});return;
@@ -130,6 +133,114 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
         try{testResetAndRecovery(market,booths,templates,restartMarker);}catch(Throwable ex){fail("ACCEPTANCE FAIL",ex);}
       });
     } catch(Throwable t) { fail("ACCEPTANCE FAIL",t); }
+  }
+  /** Step 6 release-gate checks that the five-start sequence does not cover. Ends with GATES PASS and a shutdown. */
+  private void testReleaseGates(Object market)throws Exception{
+    List<?> booths=(List<?>)field(market,"booths");World world=Bukkit.getWorld("world");
+    NamespacedKey hologramKey=new NamespacedKey((Plugin)market,"booth_hologram");
+    Object db=field(market,"db"),recovery=field(market,"recovery");
+
+    // 1. Holograms survive a real chunk unload/reload: non-persistent entities vanish, ChunkLoadEvent respawns exactly one pair.
+    Object holoBooth=booths.getFirst();String holoId=(String)field(holoBooth,"id");Location center=(Location)call(holoBooth,"center",new Class<?>[0]);
+    int cx=center.getBlockX()>>4,cz=center.getBlockZ()>>4;
+    world.setChunkForceLoaded(cx,cz,false);
+    if(!world.unloadChunk(cx,cz,true))throw new IllegalStateException("Could not unload hologram chunk "+cx+","+cz);
+    world.loadChunk(cx,cz,true);
+
+    // 2. Redstone inside a rented booth is suppressed by the default role policy.
+    Object protection=HandlerList.getRegisteredListeners((Plugin)market).stream().map(reg->reg.getListener()).filter(l->l.getClass().getName().endsWith("MarketProtection")).findFirst().orElseThrow();
+    Object redBooth=booths.get(1);UUID redOwner=UUID.randomUUID();setField(redBooth,"owner",redOwner);
+    org.bukkit.block.Block wire=world.getBlockAt((int)field(redBooth,"x")+1,(int)field(redBooth,"y")+1,(int)field(redBooth,"z")+1);
+    org.bukkit.event.block.BlockRedstoneEvent pulse=new org.bukkit.event.block.BlockRedstoneEvent(wire,0,15);
+    invoke(protection,"redstone",new Class<?>[]{org.bukkit.event.block.BlockRedstoneEvent.class},pulse);
+    setField(redBooth,"owner",null);
+    if(pulse.getNewCurrent()!=0)throw new IllegalStateException("Redstone current survived inside a rented booth: "+pulse.getNewCurrent());
+    getLogger().info("GATE REDSTONE PASS rented-booth redstone current forced to 0 by default policy");
+
+    // 3. A reset whose schematic is missing must not touch the world or journal, keeps the booth locked, and completes once the style returns.
+    Object resetBooth=booths.stream().filter(b->{try{return field(b,"owner")==null&&field(b,"style").equals("normal");}catch(Exception e){return false;}}).findFirst().orElseThrow();
+    UUID resetOwner=UUID.randomUUID();String style=(String)field(resetBooth,"style");String label="gate-missing-style-"+UUID.randomUUID();
+    int rx=(int)field(resetBooth,"x"),ry=(int)field(resetBooth,"y"),rz=(int)field(resetBooth,"z");
+    setField(resetBooth,"owner",resetOwner);setField(resetBooth,"leaseId","gate-"+UUID.randomUUID());setField(resetBooth,"expiry",System.currentTimeMillis()+3600000L);
+    call(db,"save",new Class<?>[]{resetBooth.getClass()},resetBooth);
+    org.bukkit.entity.Item dropped=world.dropItem(new Location(world,rx+3.5,ry+2,rz+3.5),tagged(Material.EMERALD,label,2));
+    setField(resetBooth,"style","gate_missing_style");
+    invoke(recovery,"reset",new Class<?>[]{resetBooth.getClass(),String.class},resetBooth,"GATE_MISSING_STYLE");
+    boolean locked=Boolean.TRUE.equals(field(resetBooth,"resetting")),journaled=(int)call(db,"resetCount",new Class<?>[0])>=1;
+    int earlyEntries=((List<?>)call(db,"recovered",new Class<?>[]{UUID.class,int.class,int.class},resetOwner,0,45)).size();
+    if(!locked||!journaled||earlyEntries!=0||!dropped.isValid()||!resetOwner.equals(field(resetBooth,"owner")))
+      throw new IllegalStateException("Missing-schematic reset: locked="+locked+" journal="+journaled+" entries="+earlyEntries+" itemIntact="+dropped.isValid());
+    setField(resetBooth,"style",style);
+    invoke(recovery,"resumeResets",new Class<?>[0]);
+
+    // 4. A complete booth that crosses the marketmain boundary is not registered by a scan.
+    Map<?,?> templates=(Map<?,?>)field(field(market,"templates"),"templates");Object premium=templates.get("premium_corner");
+    java.lang.reflect.Constructor<?> boothType=holoBooth.getClass().getDeclaredConstructor(String.class,String.class,String.class,int.class,int.class,int.class,int.class,int.class,int.class,int.class);boothType.setAccessible(true);
+    Object edge=boothType.newInstance("gate-edge","world","premium_corner",166,-60,20,(int)field(premium,"width"),(int)field(premium,"height"),(int)field(premium,"length"),0);
+    Method restore=premium.getClass().getDeclaredMethod("restore",edge.getClass());restore.setAccessible(true);restore.invoke(premium,edge);
+    // Load every chunk of the fixture region so the scan really examines the edge booth (unloaded positions are skipped).
+    for(int x=-1;x<=11;x++)for(int z=-1;z<=4;z++)world.setChunkForceLoaded(x,z,true);
+    int before=booths.size();Object scanner=field(market,"scanner");long scanStart=System.nanoTime();
+    call(scanner,"scan",new Class<?>[]{Player.class},(Object)null);
+
+    // 5. Rough cost of the synchronous World.save(true) each restore batch performs (small flat test world; not production TPS).
+    long[] saves=new long[5];for(int i=0;i<saves.length;i++){long t=System.nanoTime();world.save(true);saves[i]=(System.nanoTime()-t)/1_000_000;}
+    getLogger().info("GATE WORLD SAVE COST ms="+Arrays.toString(saves)+" (scratch flat world, 8 booths)");
+
+    new BukkitRunnable(){int ticks=0;@Override public void run(){
+      try{
+        if((boolean)call(scanner,"running",new Class<?>[0])&&++ticks<20*120)return;
+        cancel();
+        long scanMs=(System.nanoTime()-scanStart)/1_000_000;
+        for(int x=-1;x<=11;x++)for(int z=-1;z<=4;z++)world.setChunkForceLoaded(x,z,false);
+        String result=String.valueOf(field(scanner,"lastResult"));
+        if(!result.contains(" 8 known")||!result.contains("0 positions/candidates skipped")&&result.contains("skipped"))throw new IllegalStateException("Edge scan did not examine the whole region: "+result);
+        int after=((List<?>)field(market,"booths")).size();
+        if(after!=before)throw new IllegalStateException("Scan registered a booth crossing the region edge: "+before+" -> "+after+" ("+field(scanner,"lastResult")+")");
+        getLogger().info("GATE SCANNER PASS boundary-crossing booth ignored; full fixture region scan took "+scanMs+" ms ("+field(scanner,"lastResult")+")");
+        long displays=world.getEntities().stream().filter(e->holoId.equals(e.getPersistentDataContainer().get(hologramKey,PersistentDataType.STRING))&&e instanceof org.bukkit.entity.TextDisplay).count();
+        long interactions=world.getEntities().stream().filter(e->holoId.equals(e.getPersistentDataContainer().get(hologramKey,PersistentDataType.STRING))&&e instanceof org.bukkit.entity.Interaction).count();
+        if(displays!=1||interactions!=1)throw new IllegalStateException("Hologram after chunk reload: displays="+displays+" interactions="+interactions);
+        getLogger().info("GATE HOLOGRAM PASS chunk "+cx+","+cz+" unloaded and reloaded; exactly one TextDisplay and one Interaction respawned");
+        if(Boolean.TRUE.equals(field(resetBooth,"resetting"))||field(resetBooth,"owner")!=null)throw new IllegalStateException("Resumed reset did not complete after the style returned");
+        int entries=0;for(Object entry:(List<?>)call(db,"recovered",new Class<?>[]{UUID.class,int.class,int.class},resetOwner,0,45))
+          if(label.equals(((ItemStack)call(entry,"item",new Class<?>[0])).getItemMeta().getPersistentDataContainer().get(new NamespacedKey(PaperAcceptanceHarness.this,"case"),PersistentDataType.STRING)))entries++;
+        if(entries!=1)throw new IllegalStateException("Resumed reset journaled the dropped item "+entries+" times");
+        getLogger().info("GATE MISSING SCHEMATIC PASS reset halted with world and journal untouched, booth stayed locked; after the style returned, resume completed and journaled the item once");
+        getLogger().info("GATES PASS");Bukkit.getScheduler().runTaskLater(PaperAcceptanceHarness.this,Bukkit::shutdown,20L);
+      }catch(Throwable ex){cancel();fail("GATES FAIL",ex);}
+    }}.runTaskTimer(this,40L,1L);
+  }
+  /** Test-fixture only: builds each bundled style at rotations 0–3 inside marketmain, then lets the production scanner register them. */
+  private void setupAcceptanceWorld(Object market,File flag)throws Exception{
+    Map<?,?> templates=(Map<?,?>)field(field(market,"templates"),"templates");
+    World world=Bukkit.getWorld("world");int y=-60,spacing=48,row=0;
+    java.lang.reflect.Constructor<?> boothType=Class.forName("dev.skyboxy.market.Booth",true,market.getClass().getClassLoader())
+            .getDeclaredConstructor(String.class,String.class,String.class,int.class,int.class,int.class,int.class,int.class,int.class,int.class);
+    boothType.setAccessible(true);
+    for(int cx=-2;cx<=(4*spacing)>>4;cx++)for(int cz=-2;cz<=(2*spacing)>>4;cz++)world.setChunkForceLoaded(cx,cz,true);
+    for(String style:new TreeSet<>(templates.keySet().stream().map(String::valueOf).toList())){
+      Object template=templates.get(style);
+      for(int rotation=0;rotation<4;rotation++){
+        Object booth=boothType.newInstance("fixture-"+style+"-"+rotation,"world",style,rotation*spacing,y,row*spacing,
+                (int)field(template,"width"),(int)field(template,"height"),(int)field(template,"length"),rotation);
+        Method restore=template.getClass().getDeclaredMethod("restore",booth.getClass());restore.setAccessible(true);restore.invoke(template,booth);
+      }
+      row++;
+    }
+    world.save();
+    Object scanner=field(market,"scanner");call(scanner,"scan",new Class<?>[]{org.bukkit.entity.Player.class},(Object)null);
+    new BukkitRunnable(){int ticks=0;@Override public void run(){
+      try{
+        int found=((List<?>)field(market,"booths")).size();
+        if(found>=8&&!(boolean)call(scanner,"running",new Class<?>[0])){
+          cancel();for(int cx=-2;cx<=(4*spacing)>>4;cx++)for(int cz=-2;cz<=(2*spacing)>>4;cz++)world.setChunkForceLoaded(cx,cz,false);
+          if(found!=8)throw new IllegalStateException("Fixture scan registered "+found+" booths, expected 8");
+          if(!flag.delete())throw new IllegalStateException("Could not remove setup flag");
+          getLogger().info("WORLD SETUP PASS scanner registered 8 fixture booths");Bukkit.getScheduler().runTaskLater(PaperAcceptanceHarness.this,Bukkit::shutdown,20L);
+        }else if(++ticks>20*90){cancel();throw new IllegalStateException("Fixture scan found "+found+" booths after 90 s; scanner: "+field(scanner,"lastResult")+"; block at origin "+world.getBlockAt(0,-60,0).getType()+"/"+world.getBlockAt(5,-55,5).getType());}
+      }catch(Throwable ex){cancel();fail("WORLD SETUP FAIL",ex);}
+    }}.runTaskTimer(this,20L,1L);
   }
   private void continueRestartAcceptance(SkyBoxyMarket market,File marker)throws Exception {
     Properties properties=new Properties();try(var input=Files.newInputStream(marker.toPath())){properties.load(input);}
@@ -415,10 +526,322 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
     getLogger().info("HOLOGRAM PASS repeated refresh kept one TextDisplay and one Interaction for each of "+verified+" loaded booths");
   }
   private void testOptionalShopFailsClosed(Object market,List<?> booths)throws Exception{
-    Object bridge=field(market,"quickShop");
-    if(Boolean.TRUE.equals(call(bridge,"available",new Class<?>[0])))throw new IllegalStateException("QuickShop is not installed in this isolated acceptance server, but the bridge reported itself available");
-    Object booth=booths.getFirst();call(bridge,"removeShops",new Class<?>[]{booth.getClass()},booth);
-    getLogger().info("QUICKSHOP FAIL-CLOSED PASS unavailable optional API did not enable shop deletion or sale accounting");
+    // Shop protection matrix shared by every provider: all of them route clicks and storage through the same two rules.
+    Object matrixBooth=booths.getLast();Inventory[] none={null};
+    UUID renterId=UUID.randomUUID(),memberId=UUID.randomUUID(),visitorId=UUID.randomUUID();
+    Object priorOwner=field(matrixBooth,"owner"),priorAccess=field(matrixBooth,"access");setField(matrixBooth,"owner",renterId);
+    @SuppressWarnings("unchecked") Set<UUID> trustedSet=(Set<UUID>)field(matrixBooth,"trusted"),bannedSet=(Set<UUID>)field(matrixBooth,"banned");trustedSet.add(memberId);
+    Map<String,Player> roles=Map.of("renter",fakePlayer(renterId,Set.of(),none),"member",fakePlayer(memberId,Set.of(),none),"visitor",fakePlayer(visitorId,Set.of(),none));
+    Method allowed=market.getClass().getDeclaredMethod("allowed",Player.class,matrixBooth.getClass(),String.class);allowed.setAccessible(true);
+    for(String access:List.of("PUBLIC","PRIVATE","LOCKED")){setField(matrixBooth,"access",access);
+      for(Map.Entry<String,Player> role:roles.entrySet()){
+        boolean buy=(boolean)allowed.invoke(market,role.getValue(),matrixBooth,"shop-interact"),open=(boolean)allowed.invoke(market,role.getValue(),matrixBooth,"containers");
+        if(!buy||open!=!role.getKey().equals("visitor"))throw new IllegalStateException("Shop matrix "+access+"/"+role.getKey()+": shop-interact="+buy+" containers="+open);
+      }}
+    bannedSet.add(visitorId);boolean bannedBuy=(boolean)allowed.invoke(market,roles.get("visitor"),matrixBooth,"shop-interact");bannedSet.remove(visitorId);
+    trustedSet.remove(memberId);setField(matrixBooth,"owner",priorOwner);setField(matrixBooth,"access",priorAccess);
+    getLogger().info("SHOP MATRIX PASS PUBLIC/PRIVATE/LOCKED x renter/member/visitor: everyone may use shops, only renter and members open storage; banned visitor shop-interact="+bannedBuy+" (bans gate entry only)");
+    Object shops=field(market,"shops");
+    for(Object provider:(List<?>)call(shops,"all",new Class<?>[0])){
+      String name=(String)call(provider,"name",new Class<?>[0]);String status=String.valueOf(call(provider,"status",new Class<?>[0]));
+      boolean installed=Bukkit.getPluginManager().getPlugin(name)!=null;
+      if(!installed&&"AVAILABLE".equals(status))throw new IllegalStateException(name+" is not installed, but its provider reported itself available");
+      if(installed&&!"AVAILABLE".equals(status))throw new IllegalStateException(name+" is installed, but its provider is "+status);
+      getLogger().info("SHOP PROVIDER "+name+" installed="+installed+" status="+status);
+    }
+    if(Bukkit.getPluginManager().getPlugin("QuickShop-Hikari")==null){
+      Object booth=booths.getFirst();call(shops,"detach",new Class<?>[]{booth.getClass()},booth);
+      getLogger().info("QUICKSHOP FAIL-CLOSED PASS unavailable optional API did not enable shop deletion or sale accounting");
+    }else testQuickShop(market,booths);
+    if(Bukkit.getPluginManager().getPlugin("ChestShop")!=null)testChestShop(market,booths);
+    if(Bukkit.getPluginManager().getPlugin("mc-PlayerShop")!=null)testPlayerShop(market,booths);
+  }
+  /** mc-PlayerShop keeps stock in its own database: reset must journal it once, even if repeated after a simulated crash. */
+  @SuppressWarnings({"rawtypes","unchecked"})
+  private void testPlayerShop(Object market,List<?> booths)throws Exception{
+    Plugin plugin=Bukkit.getPluginManager().getPlugin("mc-PlayerShop");ClassLoader pl=plugin.getClass().getClassLoader();String base="com.mongenscave.mcplayershop.";
+    Class<?> main=Class.forName(base+"McPlayerShop",true,pl),shopType=Class.forName(base+"shop.models.PlayerShop",true,pl);
+    Object instance=main.getMethod("getInstance").invoke(null),service=main.getMethod("getShopService").invoke(instance);
+    Object shopManager=main.getMethod("getShopManager").invoke(instance),storageManager=main.getMethod("getStorageManager").invoke(instance);
+    Object db=field(market,"db"),shops=field(market,"shops");
+    Object provider=((List<?>)call(shops,"all",new Class<?>[0])).stream().filter(x->{try{return "mc-PlayerShop".equals(call(x,"name",new Class<?>[0]));}catch(Exception e){return false;}}).findFirst().orElseThrow();
+    Class<?> economyType=market.getClass().getClassLoader().loadClass("net.milkbowl.vault.economy.Economy");
+    Object economy=Bukkit.getServicesManager().getRegistration((Class)economyType).getProvider();
+    Method balance=economyType.getMethod("getBalance",org.bukkit.OfflinePlayer.class),deposit=economyType.getMethod("depositPlayer",org.bukkit.OfflinePlayer.class,double.class);
+
+    Object booth=booths.stream().filter(b->{try{return field(b,"style").equals("premium_corner")&&(int)field(b,"rotation")==2&&field(b,"owner")==null;}catch(Exception e){return false;}}).findFirst().orElseThrow();
+    UUID ownerId=UUID.randomUUID(),visitorId=UUID.randomUUID();Inventory[] opened={null};
+    Player owner=fakePlayer(ownerId,Set.of(),opened,realBackedInventory()),visitor=fakePlayer(visitorId,Set.of(),opened,realBackedInventory());
+    setField(booth,"owner",ownerId);setField(booth,"leaseId","smoke-ps-"+UUID.randomUUID());setField(booth,"expiry",System.currentTimeMillis()+3600000L);
+    call(db,"save",new Class<?>[]{booth.getClass()},booth);
+    World world=Bukkit.getWorld((String)field(booth,"world"));Object template=((Map<?,?>)field(field(market,"templates"),"templates")).get("premium_corner");
+    int[] cell=null;for(Object c:(List<?>)field(template,"cells"))if(field(c,"material")==Material.AIR&&(int)field(c,"y")==1){cell=new int[]{(int)field(c,"x"),1,(int)field(c,"z")};break;}
+    if(cell==null)throw new IllegalStateException("No floor-level air cell for the mc-PlayerShop barrel");
+    Method rotateX=template.getClass().getDeclaredMethod("rotateX",int.class,int.class,int.class),rotateZ=template.getClass().getDeclaredMethod("rotateZ",int.class,int.class,int.class);
+    rotateX.setAccessible(true);rotateZ.setAccessible(true);
+    org.bukkit.block.Block barrel=world.getBlockAt((int)field(booth,"x")+(int)rotateX.invoke(template,cell[0],cell[2],2),(int)field(booth,"y")+1,(int)field(booth,"z")+(int)rotateZ.invoke(template,cell[0],cell[2],2));
+    barrel.setType(Material.BARREL,false);
+
+    // Create a 10-per-diamond selling shop the way mc-PlayerShop does, and stock ten diamonds in its database storage.
+    service.getClass().getMethod("create",Player.class,Location.class,ItemStack.class).invoke(service,owner,barrel.getLocation(),new ItemStack(Material.DIAMOND));
+    Object shop=((Optional<?>)shopManager.getClass().getMethod("get",Location.class).invoke(shopManager,barrel.getLocation())).orElseThrow(()->new IllegalStateException("mc-PlayerShop did not register the shop"));
+    shopType.getMethod("setPrice",double.class).invoke(shop,10.0);service.getClass().getMethod("update",shopType).invoke(service,shop);
+    UUID shopId=(UUID)shopType.getMethod("getShopId").invoke(shop);
+    Object storage=storageManager.getClass().getMethod("getOrLoadSync",UUID.class).invoke(storageManager,shopId);
+    storage.getClass().getMethod("add",ItemStack.class).invoke(storage,new ItemStack(Material.DIAMOND,10));
+    storageManager.getClass().getMethod("saveAsync",storage.getClass()).invoke(storageManager,storage);
+    Object owning=call(shops,"ownerOf",new Class<?>[]{Location.class},barrel.getLocation());
+    if(owning==null||!"mc-PlayerShop".equals(call(owning,"name",new Class<?>[0])))throw new IllegalStateException("Registry did not attribute the barrel to mc-PlayerShop");
+
+    // mc-PlayerShop ignores cancelled clicks, so its menu must be blocked when the booth denies shop-interact.
+    Class<?> boundMenu=Class.forName(base+"guis.ShopBoundMenu",true,pl);Inventory[] menu={null};
+    Object holder=Proxy.newProxyInstance(pl,new Class<?>[]{boundMenu,org.bukkit.inventory.InventoryHolder.class},(proxy,method,args)->switch(method.getName()){
+      case "getShop"->shop;case "getInventory"->menu[0];case "isStale"->false;case "hashCode"->System.identityHashCode(proxy);case "equals"->proxy==args[0];default->null;});
+    menu[0]=Bukkit.createInventory((org.bukkit.inventory.InventoryHolder)holder,9);
+    org.bukkit.inventory.InventoryView view=(org.bukkit.inventory.InventoryView)Proxy.newProxyInstance(org.bukkit.inventory.InventoryView.class.getClassLoader(),new Class<?>[]{org.bukkit.inventory.InventoryView.class},
+            (proxy,method,args)->switch(method.getName()){case "getTopInventory"->menu[0];case "getPlayer"->visitor;case "hashCode"->System.identityHashCode(proxy);case "equals"->proxy==args[0];default->null;});
+    setField(booth,"suspended",true);
+    org.bukkit.event.inventory.InventoryOpenEvent denied=new org.bukkit.event.inventory.InventoryOpenEvent(view);Bukkit.getPluginManager().callEvent(denied);
+    setField(booth,"suspended",false);
+    org.bukkit.event.inventory.InventoryOpenEvent permitted=new org.bukkit.event.inventory.InventoryOpenEvent(view);Bukkit.getPluginManager().callEvent(permitted);
+    if(!denied.isCancelled()||permitted.isCancelled())throw new IllegalStateException("mc-PlayerShop menu guard: suspended="+denied.isCancelled()+" open="+permitted.isCancelled());
+
+    // A real purchase through mc-PlayerShop's service; it pays the owner by UUID and records a BUY transaction.
+    org.bukkit.OfflinePlayer ownerAccount=Bukkit.getOfflinePlayer(ownerId);
+    try{economyType.getMethod("createPlayerAccount",org.bukkit.OfflinePlayer.class).invoke(economy,ownerAccount);}catch(Exception ignored){}
+    // Essentials keeps proxy players and UUID lookups as separate accounts here, so fund both views of the buyer.
+    deposit.invoke(economy,visitor,1000.0);deposit.invoke(economy,Bukkit.getOfflinePlayer(visitorId),1000.0);
+    double ownerStart=(double)balance.invoke(economy,ownerAccount),salesStart=(double)field(booth,"sales");
+    Object hook=main.getMethod("getCurrencyManager").invoke(instance);hook=hook.getClass().getMethod("get",String.class).invoke(hook,"vault");
+    Object hookEconomy=hook.getClass().getMethod("economy").invoke(hook);
+    economyType.getMethod("createPlayerAccount",org.bukkit.OfflinePlayer.class).invoke(economy,visitor); // Essentials refuses deposits to unknown users
+    Object fund=deposit.invoke(economy,visitor,1000.0);
+    getLogger().info("PLAYERSHOP FUND success="+fund.getClass().getMethod("transactionSuccess").invoke(fund)+" error="+fund.getClass().getField("errorMessage").get(fund)+" balance="+balance.invoke(economy,visitor)+" has="+economyType.getMethod("has",org.bukkit.OfflinePlayer.class,double.class).invoke(economy,visitor,20.0));
+    getLogger().info("PLAYERSHOP ECONOMY hook="+hookEconomy.getClass().getName()+" sameAsServices="+(hookEconomy==economy)+" buyerHas20="+hook.getClass().getMethod("has",org.bukkit.OfflinePlayer.class,double.class).invoke(hook,visitor,20.0));
+    Object bought=service.getClass().getMethod("buy",shopType,Player.class,int.class).invoke(service,shop,visitor,2);
+    if(!"SUCCESS".equals(String.valueOf(bought)))throw new IllegalStateException("mc-PlayerShop purchase returned "+bought);
+    double ownerGain=(double)balance.invoke(economy,ownerAccount)-ownerStart;int counted=0;
+    for(int attempt=0;attempt<40&&counted==0;attempt++){counted=(int)call(provider,"syncSales",new Class<?>[]{booth.getClass()},booth);if(counted==0)Thread.sleep(50);}
+    int recount=(int)call(provider,"syncSales",new Class<?>[]{booth.getClass()},booth);
+    double salesGain=(double)field(booth,"sales")-salesStart;
+    getLogger().info("PLAYERSHOP SALE OBSERVED result="+bought+" ownerGain="+ownerGain+" counted="+counted+" recount="+recount+" boothSalesGain="+salesGain);
+    if(counted!=1||recount!=0||ownerGain<=0||Math.abs(salesGain-ownerGain)>0.001)throw new IllegalStateException("mc-PlayerShop sale not counted exactly once as owner revenue");
+
+    // Simulated crash after journaling but before deletion, then the real reset: stock must be journaled once in total.
+    call(provider,"journal",new Class<?>[]{booth.getClass(),Object.class},booth,shop);
+    Object recovery=field(market,"recovery");invoke(recovery,"reset",new Class<?>[]{booth.getClass(),String.class},booth,"SMOKE_PLAYERSHOP");
+    call(provider,"detach",new Class<?>[]{booth.getClass()},booth);
+    if((boolean)call(shops,"shopAt",new Class<?>[]{Location.class},barrel.getLocation()))throw new IllegalStateException("Booth reset left the mc-PlayerShop shop registered");
+    Object reloaded=storageManager.getClass().getMethod("getOrLoadSync",UUID.class).invoke(storageManager,shopId);
+    if(!((List<?>)reloaded.getClass().getMethod("getContents").invoke(reloaded)).isEmpty())throw new IllegalStateException("mc-PlayerShop storage still holds stock after reset");
+    int recovered=0;for(Object entry:(List<?>)call(db,"recovered",new Class<?>[]{UUID.class,int.class,int.class},ownerId,0,45))
+      if(String.valueOf(call(entry,"source",new Class<?>[0])).startsWith("mcplayershop:"))recovered+=((ItemStack)call(entry,"item",new Class<?>[0])).getAmount();
+    if(recovered!=8)throw new IllegalStateException("Expected eight database-held diamonds journaled once, found "+recovered);
+    getLogger().info("PLAYERSHOP PASS menu blocked in suspended booth; sale counted once ("+salesGain+"); journal repeated after simulated crash and reset returned 8 stock items exactly once");
+  }
+  /** Drives ChestShop through real Bukkit event dispatch, so listener priorities apply exactly as on a live server. */
+  @SuppressWarnings({"rawtypes","unchecked"})
+  private void testChestShop(Object market,List<?> booths)throws Exception{
+    ClassLoader cl=Bukkit.getPluginManager().getPlugin("ChestShop").getClass().getClassLoader();
+    Class<?> signType=Class.forName("com.Acrobot.ChestShop.Signs.ChestShopSign",true,cl);
+    Method isValid=signType.getMethod("isValid",org.bukkit.block.Block.class),isShopBlock=signType.getMethod("isShopBlock",org.bukkit.block.Block.class);
+    Object db=field(market,"db"),shops=field(market,"shops");
+    Class<?> economyType=market.getClass().getClassLoader().loadClass("net.milkbowl.vault.economy.Economy");
+    Object economy=Bukkit.getServicesManager().getRegistration((Class)economyType).getProvider();
+    Method balance=economyType.getMethod("getBalance",org.bukkit.OfflinePlayer.class),deposit=economyType.getMethod("depositPlayer",org.bukkit.OfflinePlayer.class,double.class);
+
+    Object booth=booths.stream().filter(b->{try{return field(b,"style").equals("premium_corner")&&(int)field(b,"rotation")==1&&field(b,"owner")==null;}catch(Exception e){return false;}}).findFirst().orElseThrow();
+    UUID ownerId=UUID.randomUUID(),visitorId=UUID.randomUUID();Inventory[] opened={null};
+    Set<String> chestShopUser=new AbstractSet<>(){@Override public boolean contains(Object o){return String.valueOf(o).toLowerCase(Locale.ROOT).startsWith("chestshop.shop.");}@Override public Iterator<String> iterator(){return Collections.emptyIterator();}@Override public int size(){return 0;}};
+    // The renter holds every ChestShop node, including admin, so the no-admin-shop refusal is SkyBoxyMarket's rule, not ChestShop's.
+    Set<String> chestShopAdmin=new AbstractSet<>(){@Override public boolean contains(Object o){return String.valueOf(o).toLowerCase(Locale.ROOT).startsWith("chestshop.");}@Override public Iterator<String> iterator(){return Collections.emptyIterator();}@Override public int size(){return 0;}};
+    Player owner=fakePlayer(ownerId,chestShopAdmin,opened,fakeInventory(41)),visitor=fakePlayer(visitorId,chestShopUser,opened,realBackedInventory());
+    setField(booth,"owner",ownerId);setField(booth,"leaseId","smoke-cs-"+UUID.randomUUID());setField(booth,"expiry",System.currentTimeMillis()+3600000L);
+    call(db,"save",new Class<?>[]{booth.getClass()},booth);
+    World world=Bukkit.getWorld((String)field(booth,"world"));Object template=((Map<?,?>)field(field(market,"templates"),"templates")).get("premium_corner");
+    Method structural=template.getClass().getDeclaredMethod("isStructural",int.class,int.class,int.class,int.class);structural.setAccessible(true);
+    int bx=(int)field(booth,"x"),by=(int)field(booth,"y"),bz=(int)field(booth,"z"),rot=(int)field(booth,"rotation");
+    org.bukkit.block.Block left=null;
+    search:for(int y=1;y<=4;y++)for(int x=bx;x<bx+(int)field(booth,"width")-1;x++)for(int z=bz;z<bz+(int)field(booth,"length")-1;z++){
+      boolean free=true;
+      for(int[] d:new int[][]{{0,0},{1,0},{0,1}})free&=world.getBlockAt(x+d[0],by+y,z+d[1]).getType()==Material.AIR&&!(boolean)structural.invoke(template,x+d[0]-bx,y,z+d[1]-bz,rot);
+      if(free){left=world.getBlockAt(x,by+y,z);break search;}
+    }
+    if(left==null)throw new IllegalStateException("No free 2x2 interior floor space for the ChestShop double chest");
+    org.bukkit.block.Block right=left.getRelative(BlockFace.EAST),signBlock=left.getRelative(BlockFace.SOUTH);
+    org.bukkit.block.data.type.Chest leftData=(org.bukkit.block.data.type.Chest)Material.CHEST.createBlockData();leftData.setFacing(BlockFace.NORTH);leftData.setType(org.bukkit.block.data.type.Chest.Type.LEFT);
+    org.bukkit.block.data.type.Chest rightData=(org.bukkit.block.data.type.Chest)Material.CHEST.createBlockData();rightData.setFacing(BlockFace.NORTH);rightData.setType(org.bukkit.block.data.type.Chest.Type.RIGHT);
+    left.setBlockData(leftData,false);right.setBlockData(rightData,false);
+    Inventory stock=((Chest)left.getState()).getInventory();
+    if(stock.getSize()!=54)throw new IllegalStateException("ChestShop fixture did not form a double chest");
+    stock.setItem(0,new ItemStack(Material.DIAMOND,5));stock.setItem(27,new ItemStack(Material.DIAMOND,5));
+
+    // Creation rules: a visitor and an admin shop are refused inside the booth; the renter's own shop is created.
+    if(placeChestShopSign(signBlock,visitor,"",isValid))throw new IllegalStateException("A visitor created a ChestShop shop inside a rented booth");
+    if(placeChestShopSign(signBlock,owner,"Admin Shop",isValid))throw new IllegalStateException("An admin shop was created inside a rented booth");
+    if(!placeChestShopSign(signBlock,owner,"",isValid))throw new IllegalStateException("The renter could not create a ChestShop shop in their booth");
+    if(!(boolean)isShopBlock.invoke(null,left)||!(boolean)call(shops,"shopAt",new Class<?>[]{Location.class},left.getLocation()))throw new IllegalStateException("ChestShop sign did not attach to the double chest");
+    Object provider=call(shops,"ownerOf",new Class<?>[]{Location.class},left.getLocation());
+    if(provider==null||!"ChestShop".equals(call(provider,"name",new Class<?>[0])))throw new IllegalStateException("Registry did not attribute the double chest to ChestShop");
+    if((boolean)call(market,"allowed",new Class<?>[]{Player.class,booth.getClass(),String.class},visitor,booth,"containers"))throw new IllegalStateException("Visitor may open ChestShop storage");
+
+    // Accounts by UUID, the way ChestShop's Vault bridge resolves them.
+    org.bukkit.OfflinePlayer visitorAccount=Bukkit.getOfflinePlayer(visitorId),ownerAccount=Bukkit.getOfflinePlayer(ownerId);
+    for(org.bukkit.OfflinePlayer account:List.of(visitorAccount,ownerAccount))try{economyType.getMethod("createPlayerAccount",org.bukkit.OfflinePlayer.class).invoke(economy,account);}catch(Exception ignored){}
+    deposit.invoke(economy,visitorAccount,1000.0);
+
+    // A suspended booth denies shop-interact; the click must be cancelled before ChestShop (LOW priority) trades.
+    setField(booth,"suspended",true);
+    double ownerStart=(double)balance.invoke(economy,ownerAccount);
+    org.bukkit.event.player.PlayerInteractEvent deniedClick=new org.bukkit.event.player.PlayerInteractEvent(visitor,org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK,null,signBlock,BlockFace.NORTH);
+    Bukkit.getPluginManager().callEvent(deniedClick);
+    int afterDenied=stock.all(Material.DIAMOND).values().stream().mapToInt(ItemStack::getAmount).sum();
+    if(afterDenied!=10||(double)balance.invoke(economy,ownerAccount)!=ownerStart)
+      throw new IllegalStateException("Visitor traded with a ChestShop shop in a suspended booth: stock="+afterDenied+" ownerGain="+((double)balance.invoke(economy,ownerAccount)-ownerStart)+" cancelled="+deniedClick.isCancelled());
+    setField(booth,"suspended",false);
+
+    // A permitted visitor buys one diamond by right-clicking the sign.
+    double salesBefore=(double)field(booth,"sales");playerMessages.clear();
+    Bukkit.getPluginManager().callEvent(new org.bukkit.event.player.PlayerInteractEvent(visitor,org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK,null,signBlock,BlockFace.NORTH));
+    int afterBuy=stock.all(Material.DIAMOND).values().stream().mapToInt(ItemStack::getAmount).sum();
+    double ownerGain=(double)balance.invoke(economy,ownerAccount)-ownerStart,salesGain=(double)field(booth,"sales")-salesBefore;
+    getLogger().info("CHESTSHOP SALE OBSERVED stock 10->"+afterBuy+" ownerGain="+ownerGain+" boothSalesGain="+salesGain+" messages="+playerMessages);
+    if(afterBuy!=9)throw new IllegalStateException("ChestShop purchase did not take exactly one diamond (stock="+afterBuy+")");
+    if(ownerGain<=0||Math.abs(salesGain-ownerGain)>0.001)throw new IllegalStateException("Booth sales grew by "+salesGain+" but the owner received "+ownerGain);
+
+    // Reset removes the shop sign and journals the nine remaining diamonds once.
+    Object recovery=field(market,"recovery");invoke(recovery,"reset",new Class<?>[]{booth.getClass(),String.class},booth,"SMOKE_CHESTSHOP");
+    if((boolean)isValid.invoke(null,signBlock)||(boolean)call(shops,"shopAt",new Class<?>[]{Location.class},left.getLocation()))throw new IllegalStateException("Booth reset left the ChestShop shop in place");
+    int recovered=0;for(Object entry:(List<?>)call(db,"recovered",new Class<?>[]{UUID.class,int.class,int.class},ownerId,0,45)){
+      ItemStack item=(ItemStack)call(entry,"item",new Class<?>[0]);
+      if(item.getType()==Material.DIAMOND)recovered+=item.getAmount();
+    }
+    if(recovered!=9)throw new IllegalStateException("Expected nine diamonds journaled once after ChestShop reset, found "+recovered);
+    getLogger().info("CHESTSHOP PASS visitor/admin creation refused, renter double-chest shop created; suspended-booth click cancelled before trade; sale counted once ("+salesGain+"); reset removed the sign and journaled 9 stock items once");
+  }
+  /** Places a sign and runs a real SignChangeEvent; returns whether ChestShop accepted it as a valid shop sign. */
+  private boolean placeChestShopSign(org.bukkit.block.Block block,Player creator,String nameLine,Method isValid)throws Exception{
+    block.setType(Material.OAK_SIGN,false);
+    List<net.kyori.adventure.text.Component> lines=new ArrayList<>(List.of(net.kyori.adventure.text.Component.text(nameLine),net.kyori.adventure.text.Component.text("1"),
+            net.kyori.adventure.text.Component.text("B 10"),net.kyori.adventure.text.Component.text("Diamond")));
+    org.bukkit.event.block.SignChangeEvent change=new org.bukkit.event.block.SignChangeEvent(block,creator,lines,org.bukkit.block.sign.Side.FRONT);
+    ClassLoader cl=Bukkit.getPluginManager().getPlugin("ChestShop").getClass().getClassLoader();Object[] outcome={null};
+    @SuppressWarnings("unchecked") Class<? extends org.bukkit.event.Event> pre=(Class<? extends org.bukkit.event.Event>)Class.forName("com.Acrobot.ChestShop.Events.PreShopCreationEvent",true,cl);
+    org.bukkit.event.Listener capture=new org.bukkit.event.Listener(){};
+    Bukkit.getPluginManager().registerEvent(pre,capture,org.bukkit.event.EventPriority.MONITOR,(l,ev)->{if(pre.isInstance(ev))try{outcome[0]=ev.getClass().getMethod("getOutcome").invoke(ev);}catch(Exception ex){outcome[0]=ex;}},this,false);
+    playerMessages.clear();
+    Bukkit.getPluginManager().callEvent(change);HandlerList.unregisterAll(capture);
+    getLogger().info("CHESTSHOP SIGN creator="+creator.getName()+" name='"+nameLine+"' outcome="+outcome[0]+" cancelled="+change.isCancelled()+" messages="+playerMessages);
+    if(change.isCancelled()||block.getType()!=Material.OAK_SIGN){block.setType(Material.AIR,false);return false;}
+    org.bukkit.block.Sign sign=(org.bukkit.block.Sign)block.getState();
+    for(int i=0;i<4;i++)sign.getSide(org.bukkit.block.sign.Side.FRONT).line(i,change.line(i));
+    sign.update(true,false);
+    boolean valid=(boolean)isValid.invoke(null,block);
+    if(!valid)getLogger().info("CHESTSHOP SIGN rejected after write: eventLines="+java.util.Arrays.toString(change.getLines())+" stored="+java.util.Arrays.toString(((org.bukkit.block.Sign)block.getState()).getLines()));
+    if(!valid)block.setType(Material.AIR,false);
+    return valid;
+  }
+  @SuppressWarnings({"rawtypes","unchecked"})
+  private void testQuickShop(Object market,List<?> booths)throws Exception{
+    ClassLoader ql=Bukkit.getPluginManager().getPlugin("QuickShop-Hikari").getClass().getClassLoader();
+    Class<?> apiType=Class.forName("com.ghostchu.quickshop.api.QuickShopAPI",true,ql),managerType=Class.forName("com.ghostchu.quickshop.api.shop.ShopManager",true,ql);
+    Class<?> shopType=Class.forName("com.ghostchu.quickshop.api.shop.Shop",true,ql),qUserType=Class.forName("com.ghostchu.quickshop.api.obj.QUser",true,ql);
+    Class<?> wrapperType=Class.forName("com.ghostchu.quickshop.api.inventory.InventoryWrapper",true,ql);
+    Class<?> bukkitWrapper=Class.forName("com.ghostchu.quickshop.shop.inventory.BukkitInventoryWrapper",true,ql);
+    Class<?> qsType=Class.forName("com.ghostchu.quickshop.QuickShop",true,ql),simpleManager=Class.forName("com.ghostchu.quickshop.shop.SimpleShopManager",true,ql);
+    Class<?> userImpl=Class.forName("com.ghostchu.quickshop.obj.QUserImpl",true,ql);
+    Object api=apiType.getMethod("getInstance").invoke(null),manager=apiType.getMethod("getShopManager").invoke(api);
+    Object qs=api; // QuickShop implements QuickShopAPI; avoid Class.getMethod on it, which resolves its optional PlaceholderAPI signatures
+    Object db=field(market,"db"),shops=field(market,"shops");
+    Class<?> economyType=market.getClass().getClassLoader().loadClass("net.milkbowl.vault.economy.Economy");
+    Object economy=Bukkit.getServicesManager().getRegistration((Class)economyType).getProvider();
+    Method balance=economyType.getMethod("getBalance",org.bukkit.OfflinePlayer.class),deposit=economyType.getMethod("depositPlayer",org.bukkit.OfflinePlayer.class,double.class);
+
+    // A rented premium booth with a renter-placed chest holding ten diamonds.
+    Object booth=booths.stream().filter(b->{try{return field(b,"style").equals("premium_corner")&&(int)field(b,"rotation")==0&&field(b,"owner")==null;}catch(Exception e){return false;}}).findFirst().orElseThrow();
+    UUID ownerId=UUID.randomUUID(),buyerId=UUID.randomUUID();Inventory[] opened={null};
+    // QuickShop checks its own quickshop.* nodes for ordinary use; the visitor has no SkyBoxyMarket permissions.
+    Set<String> quickShopUser=new AbstractSet<>(){@Override public boolean contains(Object o){return String.valueOf(o).startsWith("quickshop.");}@Override public Iterator<String> iterator(){return Collections.emptyIterator();}@Override public int size(){return 0;}};
+    Player owner=fakePlayer(ownerId,Set.of(),opened),visitor=fakePlayer(buyerId,quickShopUser,opened);
+    setField(booth,"owner",ownerId);setField(booth,"leaseId","smoke-qs-"+UUID.randomUUID());setField(booth,"expiry",System.currentTimeMillis()+3600000L);
+    call(db,"save",new Class<?>[]{booth.getClass()},booth);
+    World world=Bukkit.getWorld((String)field(booth,"world"));Object template=((Map<?,?>)field(field(market,"templates"),"templates")).get("premium_corner");
+    int[] cell=null;for(Object c:(List<?>)field(template,"cells"))if(field(c,"material")==Material.AIR&&(int)field(c,"y")==1){cell=new int[]{(int)field(c,"x"),1,(int)field(c,"z")};break;}
+    if(cell==null)throw new IllegalStateException("No floor-level air cell for the QuickShop chest");
+    org.bukkit.block.Block chestBlock=world.getBlockAt((int)field(booth,"x")+cell[0],(int)field(booth,"y")+1,(int)field(booth,"z")+cell[2]);
+    chestBlock.setType(Material.CHEST,false);Inventory stock=((Chest)chestBlock.getState()).getInventory();stock.addItem(new ItemStack(Material.DIAMOND,10));
+
+    // Create the shop exactly as QuickShop's own actionCreate builds it.
+    Object qOwner=userImpl.getMethod("createFullFilled",UUID.class,String.class,boolean.class).invoke(null,ownerId,"qsowner",true);
+    Class<?> wrapperManagerType=Class.forName("com.ghostchu.quickshop.api.inventory.InventoryWrapperManager",true,ql);
+    Object wrapperManager;try{wrapperManager=java.lang.invoke.MethodHandles.publicLookup().findVirtual(qsType,"getInventoryWrapperManager",java.lang.invoke.MethodType.methodType(wrapperManagerType)).invoke(qs);}catch(Throwable t){throw new Exception(t);}
+    Object link=wrapperManagerType.getMethod("mklink",wrapperType)
+            .invoke(wrapperManager,bukkitWrapper.getConstructor(Inventory.class).newInstance(stock));
+    Field selling=simpleManager.getDeclaredField("SELLING_TYPE"),active=simpleManager.getDeclaredField("ACTIVE_STATE");selling.setAccessible(true);active.setAccessible(true);
+    Object shop=Class.forName("com.ghostchu.quickshop.shop.ContainerShop",true,ql).getConstructors()[0].newInstance(qs,-1L,chestBlock.getLocation(),10.0,new ItemStack(Material.DIAMOND),qOwner,false,
+            selling.get(null),active.get(null),new java.util.concurrent.ConcurrentHashMap<>(),null,true,null,
+            Bukkit.getPluginManager().getPlugin("QuickShop-Hikari").getName(),link,null,Collections.emptyMap(),
+            Class.forName("com.ghostchu.quickshop.economy.QSBenefitProvider",true,ql).getConstructor().newInstance(),
+            Class.forName("com.ghostchu.quickshop.shop.cache.SimpleShopInventoryCountCache",true,ql).getConstructor().newInstance());
+    // createShop() insists on an online owner; register and load the shop the way it does after its player checks.
+    ((java.util.concurrent.CompletableFuture<?>)managerType.getMethod("registerShop",shopType,boolean.class).invoke(manager,shop,true)).get(10,java.util.concurrent.TimeUnit.SECONDS);
+    managerType.getMethod("loadShop",shopType).invoke(manager,shop);
+    Object provider=call(shops,"ownerOf",new Class<?>[]{Location.class},chestBlock.getLocation());
+    if(provider==null||!"QuickShop-Hikari".equals(call(provider,"name",new Class<?>[0])))throw new IllegalStateException("Registry did not attribute the QuickShop chest to QuickShop-Hikari");
+
+    // Visitors may use the shop but never open its storage.
+    Object protection=HandlerList.getRegisteredListeners((Plugin)market).stream().map(reg->reg.getListener()).filter(l->l.getClass().getName().endsWith("MarketProtection")).findFirst().orElseThrow();
+    org.bukkit.event.player.PlayerInteractEvent click=new org.bukkit.event.player.PlayerInteractEvent(visitor,org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK,null,chestBlock,BlockFace.UP);
+    invoke(protection,"interact",new Class<?>[]{org.bukkit.event.player.PlayerInteractEvent.class},click);
+    if(click.isCancelled())throw new IllegalStateException("Visitor could not interact with a QuickShop shop chest");
+    if((boolean)call(market,"allowed",new Class<?>[]{Player.class,booth.getClass(),String.class},visitor,booth,"containers"))throw new IllegalStateException("Visitor may open QuickShop storage");
+
+    // A real purchase through QuickShop's trade service; compare every event amount with the owner's actual Vault change.
+    // Each fake player has a unique name, so Essentials keeps one account per player for QuickShop to resolve.
+    org.bukkit.OfflinePlayer buyerAccount=Bukkit.getOfflinePlayer(buyerId),ownerAccount=Bukkit.getOfflinePlayer(ownerId);
+    for(org.bukkit.OfflinePlayer account:List.of(buyerAccount,ownerAccount))
+      try{economyType.getMethod("createPlayerAccount",org.bukkit.OfflinePlayer.class).invoke(economy,account);}catch(Exception ignored){}
+    Object depositResponse=deposit.invoke(economy,buyerAccount,1000.0);
+    getLogger().info("QUICKSHOP ACCOUNT deposit="+depositResponse.getClass().getMethod("transactionSuccess").invoke(depositResponse)+" error="+depositResponse.getClass().getField("errorMessage").get(depositResponse)
+            +" buyerBalance="+balance.invoke(economy,buyerAccount)+" worldBalance="+economyType.getMethod("getBalance",org.bukkit.OfflinePlayer.class,String.class).invoke(economy,buyerAccount,"world"));
+    double ownerBefore=(double)balance.invoke(economy,ownerAccount),salesBefore=(double)field(booth,"sales");
+    List<double[]> events=new ArrayList<>();org.bukkit.event.Listener capture=new org.bukkit.event.Listener(){};
+    Class<? extends org.bukkit.event.Event> successType=(Class)Class.forName("com.ghostchu.quickshop.api.event.economy.ShopSuccessPurchaseEvent",true,ql);
+    Bukkit.getPluginManager().registerEvent(successType,capture,org.bukkit.event.EventPriority.MONITOR,(l,ev)->{if(!successType.isInstance(ev))return;try{
+      events.add(new double[]{(double)ev.getClass().getMethod("getBalance").invoke(ev),(double)ev.getClass().getMethod("getBalanceWithoutTax").invoke(ev),(double)ev.getClass().getMethod("getTax").invoke(ev)});
+    }catch(Exception ex){throw new RuntimeException(ex);}},this,true);
+    Object buyer=userImpl.getMethod("createFullFilled",UUID.class,String.class,boolean.class).invoke(null,buyerId,"qsbuyer",true);
+    // The path a real player takes: ShopUtil maps a click on a selling shop to PURCHASE_BUY -> ShopManager.actionSelling.
+    // (The newer TradeService API does not fire ShopSuccessPurchaseEvent in 6.3.0.3, so it is not what players use.)
+    Class<?> actionType=Class.forName("com.ghostchu.quickshop.api.shop.ShopAction",true,ql),infoType=Class.forName("com.ghostchu.quickshop.api.shop.Info",true,ql);
+    Class<?> economyProviderType=Class.forName("com.ghostchu.quickshop.api.economy.EconomyProvider",true,ql);
+    Object info=Class.forName("com.ghostchu.quickshop.shop.SimpleInfo",true,ql).getConstructor(Location.class,actionType,ItemStack.class,org.bukkit.block.Block.class,shopType,boolean.class)
+            .newInstance(chestBlock.getLocation(),actionType.getField("PURCHASE_BUY").get(null),new ItemStack(Material.DIAMOND),null,shop,false);
+    Object qsEconomy=Class.forName("com.ghostchu.quickshop.api.economy.EconomyManager",true,ql).getMethod("provider").invoke(apiType.getMethod("getEconomyManager").invoke(api));
+    Inventory buyerStock=Bukkit.createInventory(null,36);
+    boolean bought=(boolean)managerType.getMethod("actionSelling",Player.class,wrapperType,economyProviderType,infoType,shopType,int.class)
+            .invoke(manager,visitor,bukkitWrapper.getConstructor(Inventory.class).newInstance(buyerStock),qsEconomy,info,shop,2);
+    HandlerList.unregisterAll(capture);
+    Object result="actionSelling="+bought+" buyerDiamonds="+buyerStock.all(Material.DIAMOND).values().stream().mapToInt(ItemStack::getAmount).sum();
+    if(!bought)throw new IllegalStateException("QuickShop purchase failed: "+result+" messages="+playerMessages);
+    double ownerGain=(double)balance.invoke(economy,ownerAccount)-ownerBefore,salesGain=(double)field(booth,"sales")-salesBefore;
+    if(events.size()!=1)throw new IllegalStateException("Expected one QuickShop success event, saw "+events.size());
+    double[] ev=events.getFirst();
+    getLogger().info("QUICKSHOP SALE OBSERVED ownerGain="+ownerGain+" getBalance="+ev[0]+" getBalanceWithoutTax="+ev[1]+" getTax="+ev[2]+" boothSalesGain="+salesGain+" result="+result);
+    if(Math.abs(salesGain-ownerGain)>0.001)throw new IllegalStateException("Booth sales grew by "+salesGain+" but the owner received "+ownerGain);
+    if(stock.all(Material.DIAMOND).values().stream().mapToInt(ItemStack::getAmount).sum()!=8)throw new IllegalStateException("QuickShop purchase did not take two diamonds from the shop chest");
+
+    // Reset: the shop is deleted and the eight remaining diamonds are journaled exactly once.
+    Object recovery=field(market,"recovery");invoke(recovery,"reset",new Class<?>[]{booth.getClass(),String.class},booth,"SMOKE_QUICKSHOP");
+    if((boolean)call(shops,"shopAt",new Class<?>[]{Location.class},chestBlock.getLocation())||managerType.getMethod("getShopIncludeAttached",Location.class).invoke(manager,chestBlock.getLocation())!=null)
+      throw new IllegalStateException("Booth reset left the QuickShop shop registered");
+    int recovered=0;for(Object entry:(List<?>)call(db,"recovered",new Class<?>[]{UUID.class,int.class,int.class},ownerId,0,45)){
+      ItemStack item=(ItemStack)call(entry,"item",new Class<?>[0]);
+      if(item.getType()!=Material.DIAMOND)throw new IllegalStateException("Reset journaled a non-stock item from the QuickShop booth: "+item);
+      recovered+=item.getAmount();
+    }
+    if(recovered!=8)throw new IllegalStateException("Expected eight diamonds journaled once after QuickShop reset, found "+recovered);
+    getLogger().info("QUICKSHOP PASS shop created in booth; visitor purchase allowed, storage closed; sale counted once ("+salesGain+"); reset deleted the shop and journaled 8 stock items once");
   }
   private void testResetAndRecovery(Object market,List<?> booths,Map<?,?> templates,File restartMarker) throws Exception {
     Object booth=booths.stream().filter(b -> {try{return field(b,"style").equals("normal")&&field(b,"rotation").equals(0);}catch(Exception e){return false;}}).findFirst().orElseThrow();
@@ -926,6 +1349,20 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
       call(market,"setupEconomy",new Class<?>[0]);
     }
   }
+  /** A PlayerInventory backed by a real Bukkit inventory, for plugins that move items with addItem/removeItem. */
+  private static PlayerInventory realBackedInventory(){
+    Inventory real=Bukkit.createInventory(null,36);
+    return (PlayerInventory)Proxy.newProxyInstance(PlayerInventory.class.getClassLoader(),new Class<?>[]{PlayerInventory.class},(proxy,method,args)->{
+      String name=method.getName();
+      if(name.equals("getItemInMainHand")||name.equals("getItemInOffHand"))return new ItemStack(Material.AIR);
+      if(name.equals("getStorageContents"))return real.getContents();
+      if(name.equals("hashCode"))return System.identityHashCode(proxy);
+      if(name.equals("equals"))return proxy==args[0];
+      if(name.equals("toString"))return "SkyBoxySmokeRealInventory";
+      if(method.getDeclaringClass().isAssignableFrom(Inventory.class))return method.invoke(real,args);
+      Class<?> result=method.getReturnType();if(result==boolean.class)return false;if(result==int.class)return 0;return null;
+    });
+  }
   private static PlayerInventory fakeInventory(int size){
     ItemStack[] contents=new ItemStack[size];
     return (PlayerInventory)Proxy.newProxyInstance(PlayerInventory.class.getClassLoader(),new Class<?>[]{PlayerInventory.class},(proxy,method,args)->{
@@ -937,7 +1374,7 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
       if(name.equals("getContents"))return contents.clone();
       if(name.equals("getStorageContents"))return Arrays.copyOf(contents,Math.min(36,contents.length));
       if(name.equals("setContents")||name.equals("setStorageContents")){ItemStack[] supplied=(ItemStack[])args[0];System.arraycopy(supplied,0,contents,0,Math.min(supplied.length,contents.length));return null;}
-      if(name.equals("getItemInMainHand"))return contents[0];
+      if(name.equals("getItemInMainHand"))return contents[0]==null?new ItemStack(Material.AIR):contents[0]; // Bukkit never returns null here
       if(name.equals("getItemInOffHand"))return contents.length>40?contents[40]:null;
       if(name.equals("hashCode"))return System.identityHashCode(proxy);
       if(name.equals("equals"))return proxy==args[0];
@@ -949,6 +1386,7 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
   }
   private static void invoke(Object target,String name,Class<?>[] parameterTypes,Object... arguments)throws Exception{Method method=target.getClass().getDeclaredMethod(name,parameterTypes);method.setAccessible(true);method.invoke(target,arguments);}
   private static Object call(Object target,String name,Class<?>[] parameterTypes,Object... arguments)throws Exception{Method method=target.getClass().getDeclaredMethod(name,parameterTypes);method.setAccessible(true);return method.invoke(target,arguments);}
+  private final List<String> playerMessages=Collections.synchronizedList(new ArrayList<>());
   private Player fakePlayer(UUID id,Set<String> permissions,Inventory[] opened){return fakePlayer(id,permissions,opened,null);}
   private Player fakePlayer(UUID id,Set<String> permissions,Inventory[] opened,PlayerInventory inventory){
     return fakePlayer(id,permissions,opened,inventory,()->{});
@@ -961,12 +1399,14 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
       if(method.getName().equals("getUniqueId"))return id;
       if(method.getName().equals("getInventory")&&inventory!=null)return inventory;
       if(method.getName().equals("saveData")){save.run();return null;}
-      if(method.getName().equals("getName"))return "skyboxy-smoke";
+      if(method.getName().equals("getName"))return "smoke_"+id.toString().substring(0,8); // unique, valid Minecraft name: economies and ChestShop map names to accounts
       if(method.getName().equals("hasPermission"))return args!=null&&args.length>0&&permissions.contains(args[0].toString());
       if(method.getName().equals("openInventory")){opened[0]=(Inventory)args[0];return null;}
       if(method.getName().equals("getOpenInventory"))return Proxy.newProxyInstance(org.bukkit.inventory.InventoryView.class.getClassLoader(),new Class<?>[]{org.bukkit.inventory.InventoryView.class},
               (view,viewMethod,viewArgs)->viewMethod.getName().equals("getTopInventory")?opened[0]:null);
-      if(method.getName().equals("sendMessage")||method.getName().equals("closeInventory"))return null;
+      if(method.getName().equals("sendMessage")){if(args!=null&&args.length>0)playerMessages.add(String.valueOf(args[0]));return null;}
+      if(method.getName().equals("closeInventory"))return null;
+      if(method.getName().equals("getWorld"))return Bukkit.getWorld("world");
       if(method.getName().equals("isOnline"))return online.getAsBoolean();
       if(method.getName().equals("isOp"))return false;
       if(method.getName().equals("hashCode"))return System.identityHashCode(proxy);

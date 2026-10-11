@@ -68,7 +68,8 @@ final class MarketProtection implements Listener {
         try{p.db.breakPlaced(b,e.getBlock().getX(),e.getBlock().getY(),e.getBlock().getZ());}
         catch(Exception ex){p.getLogger().severe("Could not untrack broken block: "+ex);}
     }
-    @EventHandler(priority=EventPriority.HIGHEST,ignoreCancelled=true)
+    // LOWEST: shop plugins act on clicks early (ChestShop trades at LOW), so a denial must land before them.
+    @EventHandler(priority=EventPriority.LOWEST,ignoreCancelled=true)
     public void interact(PlayerInteractEvent e){
         Block block=e.getClickedBlock();if(block==null)return;
         Player player=e.getPlayer();Booth b=p.at(block.getLocation());
@@ -78,8 +79,8 @@ final class MarketProtection implements Listener {
         if(e.getAction()!=Action.RIGHT_CLICK_BLOCK)return;
         Material mat=block.getType();String rule;
         if(block.getState() instanceof Container){
-            // Confirmed QuickShop containers are purchase interfaces. Ordinary private storage is not.
-            rule=p.quickShop!=null&&p.quickShop.shopAt(block.getLocation())?"shop-interact":"containers";
+            // Confirmed shop-provider containers are purchase interfaces. Ordinary private storage is not.
+            rule=p.shops.shopAt(block.getLocation())?"shop-interact":"containers";
         }else if(mat.name().contains("DOOR")||mat.name().contains("TRAPDOOR")||mat.name().contains("GATE"))rule="doors";
         else if(mat.name().contains("BUTTON")||mat.name().contains("LEVER")||mat.name().contains("PRESSURE_PLATE"))rule="buttons";
         else if(mat.name().contains("SIGN"))rule="shop-interact";
