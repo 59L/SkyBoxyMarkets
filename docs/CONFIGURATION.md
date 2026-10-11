@@ -33,6 +33,16 @@ The plugin copies `src/main/resources/config.yml` to `plugins/SkyBoxyMarket/conf
 
 The immutable schematic mask and unregistered market area remain protected independently of role toggles. `skyboxymarket.bypass` bypasses plugin protection and access checks.
 
+## Shop plugins
+
+QuickShop-Hikari 6.3.0.3, ChestShop 3.12.2 and mc-PlayerShop 1.5.1 are optional soft dependencies. They have no configuration keys; each provider enables itself when its plugin is installed and its expected API is present. Otherwise it reports `absent` or `incompatible` under `/market admin` > Providers, and does nothing. Booth sales read "unavailable" when no provider is available.
+
+- Booth protection for clicks runs at `LOWEST` priority so it acts before shop plugins (ChestShop trades at `LOW`). `shop-interact` governs using a shop and `containers` governs opening its storage.
+- Inside a booth, ChestShop shops can be created only by the renter or trusted members. Admin shops are always refused. mc-PlayerShop shops need a placed block, which follows the `place` rule. Creating a QuickShop shop in a booth as a visitor has not been tested.
+- mc-PlayerShop menus are blocked when the booth denies `shop-interact`, because mc-PlayerShop opens them even for cancelled clicks.
+- Sales count only money the owner receives, in Vault currency for mc-PlayerShop. mc-PlayerShop has no sale event, so its transaction records are read every 60 seconds.
+- The `marketmain` WorldGuard region must not deny `build`, `interact`, `use` or `chest-access`; the plugin enforces renter rules itself. The acceptance fixture sets them to `allow`.
+
 ## Style settings
 
 Each entry under `styles.<id>` may define:

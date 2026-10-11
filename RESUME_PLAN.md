@@ -157,7 +157,10 @@ This is the provider already on the live server, so it matters most for producti
 
 **Done when:** the same acceptance cases as Step 2 pass for ChestShop, including a double-chest shop.
 
-### Step 4 — mc-PlayerShop 1.5.1
+### Step 4 — mc-PlayerShop 1.5.1 — DONE 2026-10-11
+
+`PlayerShopProvider` is in place; results are in the `FEATURE_STATUS.md` row. Sales are readable from its transaction records, so "unavailable" was not needed. The real-JVM-crash variant of the fault tests is still open; the in-process repeat passed.
+
 
 Highest risk of the three, because stock is outside the world and there is no API.
 
@@ -170,7 +173,10 @@ Highest risk of the three, because stock is outside the world and there is no AP
 
 **Done when:** stock held in mc-PlayerShop's database is returned exactly once through `/market recover` across a restart, or the provider is explicitly reported as unsupported with the reason.
 
-### Step 5 — Multi-provider acceptance and documentation
+### Step 5 — Multi-provider acceptance and documentation — DONE 2026-10-11 (see the Step 5 runs in FEATURE_STATUS)
+
+The harness asserts a shop protection matrix (PUBLIC/PRIVATE/LOCKED × renter/member/visitor: everyone may use shops, only renter and members open storage) in every run, and each provider test adds the storage-closed check against a real shop. COMPATIBILITY, CONFIGURATION and RECOVERY are updated.
+
 
 - Run the scratch server with all three installed, and with each one alone, and with none.
 - Extend the protection matrix with the shop cases: visitor buys but cannot open storage, for every provider and every access mode.

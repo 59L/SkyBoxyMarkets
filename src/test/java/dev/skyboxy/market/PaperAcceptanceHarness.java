@@ -448,6 +448,21 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
     getLogger().info("HOLOGRAM PASS repeated refresh kept one TextDisplay and one Interaction for each of "+verified+" loaded booths");
   }
   private void testOptionalShopFailsClosed(Object market,List<?> booths)throws Exception{
+    // Shop protection matrix shared by every provider: all of them route clicks and storage through the same two rules.
+    Object matrixBooth=booths.getLast();Inventory[] none={null};
+    UUID renterId=UUID.randomUUID(),memberId=UUID.randomUUID(),visitorId=UUID.randomUUID();
+    Object priorOwner=field(matrixBooth,"owner"),priorAccess=field(matrixBooth,"access");setField(matrixBooth,"owner",renterId);
+    @SuppressWarnings("unchecked") Set<UUID> trustedSet=(Set<UUID>)field(matrixBooth,"trusted"),bannedSet=(Set<UUID>)field(matrixBooth,"banned");trustedSet.add(memberId);
+    Map<String,Player> roles=Map.of("renter",fakePlayer(renterId,Set.of(),none),"member",fakePlayer(memberId,Set.of(),none),"visitor",fakePlayer(visitorId,Set.of(),none));
+    Method allowed=market.getClass().getDeclaredMethod("allowed",Player.class,matrixBooth.getClass(),String.class);allowed.setAccessible(true);
+    for(String access:List.of("PUBLIC","PRIVATE","LOCKED")){setField(matrixBooth,"access",access);
+      for(Map.Entry<String,Player> role:roles.entrySet()){
+        boolean buy=(boolean)allowed.invoke(market,role.getValue(),matrixBooth,"shop-interact"),open=(boolean)allowed.invoke(market,role.getValue(),matrixBooth,"containers");
+        if(!buy||open!=!role.getKey().equals("visitor"))throw new IllegalStateException("Shop matrix "+access+"/"+role.getKey()+": shop-interact="+buy+" containers="+open);
+      }}
+    bannedSet.add(visitorId);boolean bannedBuy=(boolean)allowed.invoke(market,roles.get("visitor"),matrixBooth,"shop-interact");bannedSet.remove(visitorId);
+    trustedSet.remove(memberId);setField(matrixBooth,"owner",priorOwner);setField(matrixBooth,"access",priorAccess);
+    getLogger().info("SHOP MATRIX PASS PUBLIC/PRIVATE/LOCKED x renter/member/visitor: everyone may use shops, only renter and members open storage; banned visitor shop-interact="+bannedBuy+" (bans gate entry only)");
     Object shops=field(market,"shops");
     for(Object provider:(List<?>)call(shops,"all",new Class<?>[0])){
       String name=(String)call(provider,"name",new Class<?>[0]);String status=String.valueOf(call(provider,"status",new Class<?>[0]));
@@ -516,8 +531,15 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
     // A real purchase through mc-PlayerShop's service; it pays the owner by UUID and records a BUY transaction.
     org.bukkit.OfflinePlayer ownerAccount=Bukkit.getOfflinePlayer(ownerId);
     try{economyType.getMethod("createPlayerAccount",org.bukkit.OfflinePlayer.class).invoke(economy,ownerAccount);}catch(Exception ignored){}
-    deposit.invoke(economy,visitor,1000.0);
+    // Essentials keeps proxy players and UUID lookups as separate accounts here, so fund both views of the buyer.
+    deposit.invoke(economy,visitor,1000.0);deposit.invoke(economy,Bukkit.getOfflinePlayer(visitorId),1000.0);
     double ownerStart=(double)balance.invoke(economy,ownerAccount),salesStart=(double)field(booth,"sales");
+    Object hook=main.getMethod("getCurrencyManager").invoke(instance);hook=hook.getClass().getMethod("get",String.class).invoke(hook,"vault");
+    Object hookEconomy=hook.getClass().getMethod("economy").invoke(hook);
+    economyType.getMethod("createPlayerAccount",org.bukkit.OfflinePlayer.class).invoke(economy,visitor); // Essentials refuses deposits to unknown users
+    Object fund=deposit.invoke(economy,visitor,1000.0);
+    getLogger().info("PLAYERSHOP FUND success="+fund.getClass().getMethod("transactionSuccess").invoke(fund)+" error="+fund.getClass().getField("errorMessage").get(fund)+" balance="+balance.invoke(economy,visitor)+" has="+economyType.getMethod("has",org.bukkit.OfflinePlayer.class,double.class).invoke(economy,visitor,20.0));
+    getLogger().info("PLAYERSHOP ECONOMY hook="+hookEconomy.getClass().getName()+" sameAsServices="+(hookEconomy==economy)+" buyerHas20="+hook.getClass().getMethod("has",org.bukkit.OfflinePlayer.class,double.class).invoke(hook,visitor,20.0));
     Object bought=service.getClass().getMethod("buy",shopType,Player.class,int.class).invoke(service,shop,visitor,2);
     if(!"SUCCESS".equals(String.valueOf(bought)))throw new IllegalStateException("mc-PlayerShop purchase returned "+bought);
     double ownerGain=(double)balance.invoke(economy,ownerAccount)-ownerStart;int counted=0;

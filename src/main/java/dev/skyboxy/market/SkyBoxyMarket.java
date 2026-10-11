@@ -59,7 +59,7 @@ public final class SkyBoxyMarket extends JavaPlugin implements Listener {
         setupEconomy();
         reloadStyles();
         scanner=new MarketScanner(this);holograms=new MarketHolograms(this);
-        shops=new ShopProviders(List.of(new QuickShopBridge(this),new ChestShopProvider(this)));
+        shops=new ShopProviders(List.of(new QuickShopBridge(this),new ChestShopProvider(this),new PlayerShopProvider(this)));
         recovery=new MarketRecovery(this);rentals=new MarketRentals(this);menus=new MarketMenus(this);
         getServer().getPluginManager().registerEvents(new MarketProtection(this),this);
         getServer().getPluginManager().registerEvents(recovery,this);

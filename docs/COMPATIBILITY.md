@@ -11,7 +11,9 @@
 | WorldGuard | `7.0.18` | Compile-only server API. |
 | Vault API | `1.7` | Compile-only; the server must provide Vault and an economy provider for charged actions. |
 | SQLite JDBC | `3.50.3.0` | Bundled in the shaded JAR. |
-| QuickShop-Hikari | Not pinned | Optional reflection-only bridge; exact supported release is not established. |
+| QuickShop-Hikari | `6.3.0.3` | Optional, reflection-only. Startup checks `bukkitLocation`, `isSelling` and the purchase event's `getBalance`; any mismatch disables the provider. |
+| ChestShop | `3.12.2` (build 353) | Optional, reflection-only. Startup checks the sign helpers and the transaction and shop-creation events. |
+| mc-PlayerShop | `1.5.1` exactly | Optional; it has no public API, so the provider reflects on internals and refuses any other version.  |
 
 ## Runtime evidence
 
@@ -23,7 +25,10 @@
 | WorldGuard | `7.0.17+2370-e42d8bc` | Loaded; the scanner used the `marketmain` region. Full production flag/event-order acceptance was not run. |
 | Vault | `1.7.3-b131` | Loaded. The smoke suite exercised both a test-only provider and the real EssentialsX provider below. |
 | EssentialsX | `2.22.0` | Real `EssentialsX Economy` provider was discovered; register/unregister, rent, renewal, and wall charge callbacks passed against a synthetic account. Essentials warned this Paper version is unsupported; this is API evidence, not a production compatibility certification. |
-| QuickShop-Hikari | Not installed | Bridge reported unavailable and failed closed; shop deletion and sale accounting were not exercised. |
+| QuickShop-Hikari | `6.3.0.3`, SHA-256 `EB65B63D803B2C61BE6827F803572BA71F56BBAD9F1CD5959B9B746DF0669C3A` (Modrinth) | Starts on Paper 26.2-124 (display items off without ProtocolLib). Shop in a rented booth, visitor purchase via `ShopManager.actionSelling`, sale counted once with tax on buyer or owner, reset deleted the shop and journaled stock once. Fails closed when absent. |
+| ChestShop | `3.12.2` build 353, SHA-256 `633D0C761440A70CCE447E98E917C5F3A64527D75FDB4FAE1E415CD2E82F13A2` (Modrinth) | Same version label as the live server's `2465CC20…` JAR but different bytes; the live JAR was not tested. Creation rules, double-chest shop, purchase counted once, denied-booth click cancelled before trade, reset removed the sign and journaled stock once. |
+| mc-PlayerShop | `1.5.1`, SHA-256 `26B020564A553AA909073B8B88F3512B7EB030796BB38726BC511CA0CCDB697C` (Modrinth) | Downloads its runtime libraries on first start. Internals verified; menu blocked in a denied booth; purchase counted once from its transaction records; database-held stock journaled once on reset, including after a simulated crash between journal and deletion. |
+| Paper (Claude machine) | `26.2-124` on Java `25.0.2` | All of the above plus the original acceptance and the five-start sequence, with no shop plugin, each alone, and all three together. |
 
 The final isolated suite passed 35 JUnit tests and Paper checks for both style schematics/four rotations, all 16 wall colors/four rotations, menu selection and owner search, role/access and direct/indirect protection cases, item/recovery receipts, payment-intent review and injected refund outcomes, repeated hologram refresh, and QuickShop absence. Reset restoration stayed within the 17-block-per-tick test budget. Two clean server restarts recovered pending resets from `SNAPSHOTTING` and from `RESTORING` at a durable cursor of 32, with booth chunks unloaded before startup. A separate run deliberately halted the JVM after a restore batch had flushed and its SQLite cursor advanced; the next startup completed the reset with the recovery row retained once. This validates one process-termination point, not OS power loss or every crash boundary. A synthetic 1,000-booth index check measured 100,000 lookups in 36 ms against a 5,000 ms budget.
 
@@ -36,7 +41,7 @@ The test harness uses synthetic player objects and a scratch world; no human cli
 ## Compatibility and acceptance still to establish
 
 - Repeat startup, rent, renew, wall charge/refund, schematic restore, and reset checks on the target production Paper, WorldEdit/FAWE, WorldGuard, Vault, and economy-provider versions. Resolve Essentials' unsupported-version warning by testing a supported server/provider combination.
-- Test QuickShop-Hikari API discovery, successful-purchase accounting, shop deletion, and reset retry against the exact target JAR. Until then, the bridge is unavailable and sales totals are not authoritative.
+- Re-run ChestShop against the live server's exact `2465CC20…` JAR. Run all three shop plugins with human clients, ProtocolLib (QuickShop display items), and the production WorldGuard flags. Inject a real JVM crash between mc-PlayerShop's journal and deletion; the current check repeats the journal in-process.
 - Test all protection roles/actions and WorldGuard flag/event ordering with actual player sessions and the production region configuration, including the remaining redstone and third-party shop boundaries.
 - Inject abrupt process/power loss across every reset and recovery-claim persistence boundary; test custom item components and unusual block entities.
 - Measure reset snapshotting, chunk loading, and batched restoration TPS on production-sized booths and hardware.
