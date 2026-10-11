@@ -21,7 +21,8 @@ Updated 2026-10-11. `Verified` describes only the scenarios listed below. This r
 ## Built test artifact
 
 - JAR: `build/libs/SkyBoxyMarket-1.0.0-SNAPSHOT.jar`
-- SHA-256: `72B260512F7149E2BA8CCE4BC9F982820849095151DB88729D2FA86B9AE8F696`
+- SHA-256: `72B260512F7149E2BA8CCE4BC9F982820849095151DB88729D2FA86B9AE8F696` (Codex machine; the Paper acceptance above ran against this JAR)
+- A rebuild of the same source on the Claude machine (JDK `25.0.2`) also passes 35 tests and produces SHA-256 `F29649E9B13DD50442C153D0AAF2DC670888B4E18C291C576D4A7F943B730E1E`. The build is not byte-reproducible across machines, and this rebuild has not yet run Paper acceptance.
 - Both bundled schematic files were compared byte-for-byte with their source files. The artifact is an unsigned development snapshot for isolated acceptance testing.
 
 ## Runtime acceptance environment

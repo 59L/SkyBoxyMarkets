@@ -261,3 +261,14 @@ See `FEATURE_STATUS.md` for honest state. Codex should first investigate at mini
 - The exact rebuilt JAR passed full isolated Paper/FAWE acceptance and the five-start sequence: `SNAPSHOTTING` recovery, cursor-32 `RESTORING` recovery, intentional `Runtime.halt(73)`, and post-halt recovery. The latest index sample was 100,000 queries over 1,000 booths in 33 ms.
 - Latest artifact: `build/libs/SkyBoxyMarket-1.0.0-SNAPSHOT.jar`; SHA-256 `2DE05769D4F95F871F12777E242CA6CED4548728A482D7C62CEDC1630E7A1EB5`. Acceptance logs: `.temp/paper-smoke/partial-final-full-{1..5}.out.log` and `.temp/paper-smoke/partial-final-gui.out.log`; failure-to-success evidence: `partial-claims-red`, `partial-death-red`, `partial-claims-fault-red`, and `partial-claims-fault-green` logs in the same directory.
 - Recovery remains incomplete against the full plan. Next coding work includes a separate whole-storage claim-all action; real player-file crash boundaries, broader ownership/metadata fidelity, and all previously recorded phase/provider/production gates remain open.
+
+## Execution record — 2026-10-11 whole-storage claim-all (written up at the Claude handoff)
+
+Codex implemented and accepted this work but stopped before recording it. This record was written by Claude from the code, `FEATURE_STATUS.md` and `RESUME_PLAN.md`. The `.temp/` logs exist only on the original machine and were not re-read.
+
+- Added `MarketRecovery.claimAll` / `ClaimAllJob` and the `claimall` recovery-menu action, kept separate from "claim all on page". A pass fixes its upper bound at the highest available entry ID when it starts, then walks owner-scoped keyset pages. New resets and split remainders wait for the next pass.
+- Each tick checks at most 16 entries and delivers at most one receipt (two player saves) per player. Entries that do not fit are skipped so later fitting stock still gets filled, and leftovers stay in recovery. Duplicate all-claim requests and concurrent item/page claims are refused.
+- A pass stops with entries intact on disconnect, loss of market permission, plugin disable or a delivery error. The last fix added online checks on the menu, direct-delivery and all-pass routes, so a queued page action can no longer deliver to a disconnected player.
+- A clean Java 25 build passes 35 tests (0 failures/errors/skips). Paper delivered 94 entries across three pages and passed the fault/cancellation checks listed in `docs/RECOVERY.md`.
+- Tested artifact SHA-256: `72B260512F7149E2BA8CCE4BC9F982820849095151DB88729D2FA86B9AE8F696`. Acceptance: the `claim-all-offline-full-{1..5}` five-start sequence passed at 01:14 on that JAR, along with the earlier `claim-all-*` logs, all in `.temp/paper-smoke/` on the original machine.
+- Claims still use simulated players. Real player-file crash boundaries and every earlier provider/production gate remain open.

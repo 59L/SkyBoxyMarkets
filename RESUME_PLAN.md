@@ -14,9 +14,9 @@ Codex's last session implemented the whole-storage "claim all" recovery action a
 | Built JAR | `build/libs/SkyBoxyMarket-1.0.0-SNAPSHOT.jar`, SHA-256 `72B260512F7149E2BA8CCE4BC9F982820849095151DB88729D2FA86B9AE8F696` |
 | Last Paper acceptance | `claim-all-offline-full-{1..5}` five-start sequence passed at 01:14, after the JAR was built at 01:11 |
 | `FEATURE_STATUS.md` | Current: describes claim-all and the 35-test build |
-| `CHANGELOG.md` | Stale: top entry still says 32 tests, hash `2DE05769…`, claim-all open |
-| `CODEX_IMPLEMENTATION_PLAN.md` | Stale: last execution record is "partial claims and receipt ordering"; no claim-all record |
-| Git | Claim-all work was uncommitted in the working tree at handoff |
+| `CHANGELOG.md` | Current since Step 0 |
+| `CODEX_IMPLEMENTATION_PLAN.md` | Current since Step 0: has a claim-all execution record |
+| Git | Claim-all is in the remote's initial commit `b5a1f9c` |
 
 Claim-all lives in `MarketRecovery.claimAll` / `ClaimAllJob` and the `claimall` action in `MarketMenus`. The last bug Codex fixed there was a queued page action delivering to a disconnected player; the fix added online checks on the menu, direct-delivery and all-pass routes.
 
@@ -100,7 +100,9 @@ These were read from the JARs with `javap`. None of it has been run on a server 
 
 Work in order. Each step ends with the clean build passing, the relevant Paper acceptance passing, `FEATURE_STATUS.md` updated honestly, and a commit.
 
-### Step 0 — Close out Codex's claim-all session
+### Step 0 — Close out Codex's claim-all session — DONE 2026-10-11
+
+CHANGELOG, the CODEX execution record and README now describe claim-all. `docs/RECOVERY.md` already matched the code. Claim-all was already in the remote's initial commit. A clean rebuild on the Claude machine (JDK 25.0.2 at `C:\Program Files\Java\jdk-25.0.2`) passes 35 tests with hash `F29649E9…`; see `FEATURE_STATUS.md`.
 
 - Add a `CHANGELOG.md` entry and a `CODEX_IMPLEMENTATION_PLAN.md` execution record for claim-all, citing the `claim-all-*` logs, 35 tests and the `72B26051…` artifact.
 - Check that `docs/RECOVERY.md` and `README.md` describe claim-all the way the code behaves (16 entries per pass, one receipt per tick per player, leftovers stay in recovery).

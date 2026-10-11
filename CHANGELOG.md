@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-11 — whole-storage claim-all
+
+- Added a **Claim all storage** recovery action, separate from **Claim all on page**. It walks every available entry up to the highest ID present when the pass started. Each tick checks at most 16 entries and delivers at most one receipt per player. Items that do not fit stay in recovery.
+- Duplicate and concurrent claims are refused. Disconnect, loss of permission, plugin disable or a delivery error stops the pass with entries intact. A queued page action no longer delivers to a disconnected player.
+- Clean build: 35 tests, no failures/errors/skips. Paper delivered 94 entries across three pages, and the five-start reset/hard-halt sequence passed.
+- Tested artifact SHA-256: `72B260512F7149E2BA8CCE4BC9F982820849095151DB88729D2FA86B9AE8F696`. The release gates in [FEATURE_STATUS.md](FEATURE_STATUS.md) remain open.
+
 ## 2026-10-11 — partial recovery and receipt faults
 
 - Recovery item/page actions claim the quantity that fits, including matching partial stacks. SQLite atomically preserves the claimed portion and any remainder, with owner/payload validation and the original reset source key retained.
