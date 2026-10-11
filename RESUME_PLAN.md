@@ -50,6 +50,12 @@ The scratch server is `.temp/paper-smoke/` (Paper `26.2-121`, FAWE `2.15.2`, Wor
 - Each start has a 45-second window; if a server is still alive after that, the scripts stop rather than start another. Check for a leftover Java process before re-running.
 - Logs are `<prefix>-N.out.log` / `.err.log` in the same directory. Codex's convention is a `-red` log reproducing a bug before a `-green` log of the fix.
 
+### 2.2a Claude machine (rebuilt 2026-10-11)
+
+- JDK: `C:\Program Files\Java\jdk-25.0.2`. Paper `26.2-124` (Codex used 121). FAWE 2.15.2, WorldGuard 7.0.17 and EssentialsX 2.22.0 come from Modrinth; Vault 1.7.3 from its GitHub release. Downloads are in `.temp/downloads/`.
+- One script, `.temp/paper-smoke/run.ps1 -Mode setup|claims|full -LogPrefix <name> [-Shops none|quickshop|chestshop|playershop|all|a,b] [-TimeoutSec n]`, replaces the two Codex scripts. It packages the harness as `SkyBoxyMarketSmoke.jar`, installs the selected shop JARs from the project root, and restores the 8-booth fixture from `.temp/paper-smoke-baseline/` before every claims/full run. `full` prints `FULL SEQUENCE PASS`.
+- `-Mode setup` builds the fixture: `PaperAcceptanceHarness.setupAcceptanceWorld` pastes both styles at rotations 0–3 into a flat world inside the WorldGuard region `marketmain` (x -8..170, y -61..-45, z -8..70), and the production scanner registers them. This is test-only; the plugin itself never generates booths.
+
 ### 2.3 Rebuilding the environment on another machine
 
 1. Install a JDK 25 and point `JAVA_HOME` at it.
@@ -110,9 +116,9 @@ CHANGELOG, the CODEX execution record and README now describe claim-all. `docs/R
 
 **Done when:** the three status documents agree on test count, hash and claim-all state.
 
-### Step 1 — Shop provider abstraction (no behavior change) — CODE DONE 2026-10-11, Paper check pending
+### Step 1 — Shop provider abstraction (no behavior change) — DONE 2026-10-11
 
-`ShopProviders.java` holds the interface and the registry; `QuickShopBridge` implements it, and every call site has moved. Sale idempotency is durable: the `shop_sales` table, migration 5. Visible changes: diagnostics now show per-provider state, and sales read "unavailable" when no provider is available. 39 unit tests pass. Still open: the absent-provider Paper fail-closed check, which waits on rebuilding the scratch server (section 2.3) and the eight-booth test world. The `mc-PlayerShop` softdepend name is a guess until its `plugin.yml` is read in Step 4.
+`ShopProviders.java` holds the interface and the registry; `QuickShopBridge` implements it, and every call site has moved. Sale idempotency is durable: the `shop_sales` table, migration 5. Visible changes: diagnostics now show per-provider state, and sales read "unavailable" when no provider is available. 39 unit tests pass. The full five-start sequence passed with no shop plugin installed (`step1-noshop-{1..5}`). The `mc-PlayerShop` softdepend name matches that JAR's `plugin.yml`.
 
 Replace the single `QuickShopBridge` field with a provider interface so three plugins can coexist.
 
@@ -183,7 +189,7 @@ Clean build, full five-start sequence, final SHA-256, documentation matching beh
 
 ## 5. Decisions needed from the owner
 
-These do not block Steps 0–1.
+Answered by the owner on 2026-10-11: support and test all three providers equally; no admin shops inside rented booths; "sales unavailable" is acceptable for mc-PlayerShop if its records cannot be read reliably.
 
 1. Which shop plugin will the market actually use in production? ChestShop is live today; the other two are not installed. Supporting all three is planned, but the answer sets test priority.
 2. Should admin shops be allowed inside rented booths?

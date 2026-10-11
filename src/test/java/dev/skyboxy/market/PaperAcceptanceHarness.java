@@ -86,6 +86,8 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
     try {
       Object market=Bukkit.getPluginManager().getPlugin("SkyBoxyMarket");
       if(market==null) throw new IllegalStateException("SkyBoxyMarket did not enable");
+      File setupFlag=new File(getDataFolder(),"setup-world.flag");
+      if(setupFlag.isFile()){setupAcceptanceWorld(market,setupFlag);return;}
       if(new File(getDataFolder(),"claims-only.flag").isFile()){
         testMergedReceiptDeath(market);testPartialRecoveryClaims(market);testDeathRecoveryReceipt(market);testPartialClaimFaults(market);testRecoveryClaimMenus(market);
         testWholeRecoveryClaims(market,()->{getLogger().info("CLAIM ACCEPTANCE PASS");Bukkit.getScheduler().runTaskLater(this,Bukkit::shutdown,10L);});return;
@@ -130,6 +132,37 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
         try{testResetAndRecovery(market,booths,templates,restartMarker);}catch(Throwable ex){fail("ACCEPTANCE FAIL",ex);}
       });
     } catch(Throwable t) { fail("ACCEPTANCE FAIL",t); }
+  }
+  /** Test-fixture only: builds each bundled style at rotations 0–3 inside marketmain, then lets the production scanner register them. */
+  private void setupAcceptanceWorld(Object market,File flag)throws Exception{
+    Map<?,?> templates=(Map<?,?>)field(field(market,"templates"),"templates");
+    World world=Bukkit.getWorld("world");int y=-60,spacing=48,row=0;
+    java.lang.reflect.Constructor<?> boothType=Class.forName("dev.skyboxy.market.Booth",true,market.getClass().getClassLoader())
+            .getDeclaredConstructor(String.class,String.class,String.class,int.class,int.class,int.class,int.class,int.class,int.class,int.class);
+    boothType.setAccessible(true);
+    for(int cx=-2;cx<=(4*spacing)>>4;cx++)for(int cz=-2;cz<=(2*spacing)>>4;cz++)world.setChunkForceLoaded(cx,cz,true);
+    for(String style:new TreeSet<>(templates.keySet().stream().map(String::valueOf).toList())){
+      Object template=templates.get(style);
+      for(int rotation=0;rotation<4;rotation++){
+        Object booth=boothType.newInstance("fixture-"+style+"-"+rotation,"world",style,rotation*spacing,y,row*spacing,
+                (int)field(template,"width"),(int)field(template,"height"),(int)field(template,"length"),rotation);
+        Method restore=template.getClass().getDeclaredMethod("restore",booth.getClass());restore.setAccessible(true);restore.invoke(template,booth);
+      }
+      row++;
+    }
+    world.save();
+    Object scanner=field(market,"scanner");call(scanner,"scan",new Class<?>[]{org.bukkit.entity.Player.class},(Object)null);
+    new BukkitRunnable(){int ticks=0;@Override public void run(){
+      try{
+        int found=((List<?>)field(market,"booths")).size();
+        if(found>=8&&!(boolean)call(scanner,"running",new Class<?>[0])){
+          cancel();for(int cx=-2;cx<=(4*spacing)>>4;cx++)for(int cz=-2;cz<=(2*spacing)>>4;cz++)world.setChunkForceLoaded(cx,cz,false);
+          if(found!=8)throw new IllegalStateException("Fixture scan registered "+found+" booths, expected 8");
+          if(!flag.delete())throw new IllegalStateException("Could not remove setup flag");
+          getLogger().info("WORLD SETUP PASS scanner registered 8 fixture booths");Bukkit.getScheduler().runTaskLater(PaperAcceptanceHarness.this,Bukkit::shutdown,20L);
+        }else if(++ticks>20*90){cancel();throw new IllegalStateException("Fixture scan found "+found+" booths after 90 s; scanner: "+field(scanner,"lastResult")+"; block at origin "+world.getBlockAt(0,-60,0).getType()+"/"+world.getBlockAt(5,-55,5).getType());}
+      }catch(Throwable ex){cancel();fail("WORLD SETUP FAIL",ex);}
+    }}.runTaskTimer(this,20L,1L);
   }
   private void continueRestartAcceptance(SkyBoxyMarket market,File marker)throws Exception {
     Properties properties=new Properties();try(var input=Files.newInputStream(marker.toPath())){properties.load(input);}
