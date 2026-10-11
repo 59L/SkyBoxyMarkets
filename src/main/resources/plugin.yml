@@ -1,0 +1,26 @@
+name: SkyBoxyMarket
+version: 1.0.0-SNAPSHOT
+main: dev.skyboxy.market.SkyBoxyMarket
+api-version: '26.2'
+author: SkyBoxy
+website: https://github.com/59L
+load: POSTWORLD
+depend: [WorldGuard, Vault]
+softdepend: [FastAsyncWorldEdit, WorldEdit, QuickShop-Hikari, QuickShop]
+commands:
+  market:
+    description: SkyBoxy player marketplace
+    usage: /market [admin|walls|recover|browse|tp|backup|help]
+permissions:
+  skyboxymarket.admin:
+    description: Manage all booths, styles, prices and market settings
+    default: op
+  skyboxymarket.bypass:
+    description: Bypass market access and build protection
+    default: op
+  skyboxymarket.use:
+    description: Use player marketplace
+    default: true
+  skyboxymarket.rent.premium:
+    description: Example permission for premium corner booths
+    default: false

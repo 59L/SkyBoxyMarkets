@@ -1,0 +1,111 @@
+market:
+  region: marketmain
+  world: world
+  name: '&aSkyBoxy &8» &fMarket'
+  scan-blocks-per-tick: 1600
+  scan-comparisons-per-tick: 12000
+  scan-registrations-per-tick: 20
+  scan-max-volume: 15000000
+  scan-unloaded-policy: skip
+  scan-verify-all-blocks-in-region: true
+  scan-match-air: true
+  auto-scan-on-start: false
+  deny-unregistered-area-edits: true
+  economy-enabled: true
+  max-total-booths-per-player: 1
+  visit-cooldown-seconds: 30
+  max-entrance-move-distance: 8
+  recover-unclaimed-items-days: 0
+  expiry-check-ticks: 1200
+  default-hologram-y-offset: 1.7
+  reset-batch-size: 256
+  reset-blocks-per-tick: 256
+  allow-vanilla-container-sales: false
+
+# Global policy; staff can toggle these in /market admin -> Global Permissions.
+# The structure mask and claims are always protected regardless of these switches.
+permissions:
+  visitor:
+    place: false
+    break: false
+    containers: false
+    doors: true
+    buttons: true
+    shop-interact: true
+    entities: false
+    redstone: false
+    fluids: false
+    pvp: false
+  renter:
+    place: true
+    break: true
+    containers: true
+    doors: true
+    buttons: true
+    shop-interact: true
+    entities: true
+    redstone: false
+    fluids: false
+    pvp: false
+  member:
+    place: true
+    break: true
+    containers: true
+    doors: true
+    buttons: true
+    shop-interact: true
+    entities: true
+    redstone: false
+    fluids: false
+    pvp: false
+
+# Add unlimited styles by copying a style entry (and adding its matching .schem file).
+styles:
+  normal:
+    name: '&fStandard Booth'
+    schematic: mainMarket2.schem
+    icon: WHITE_CONCRETE
+    enabled: true
+    priority: 1
+    rental:
+      price: 5000
+      duration-hours: 168
+      renewal-price: 5000
+      renewal-hours: 168
+      grace-hours: 0
+      cooldown-hours: 24
+      max-per-player: 1
+      max-duration-hours: 672
+      required-permission: ''
+    offsets:
+      teleport: {x: 0.0, y: 1.0, z: 0.0, yaw: 0.0}
+      hologram: {x: 0.0, y: 1.7, z: 0.0}
+    walls:
+      template-material: GRAY_CONCRETE
+      cost: 0
+      cooldown-seconds: 0
+      colors: [WHITE, ORANGE, MAGENTA, LIGHT_BLUE, YELLOW, LIME, PINK, GRAY, LIGHT_GRAY, CYAN, PURPLE, BLUE, BROWN, GREEN, RED, BLACK]
+  premium_corner:
+    name: '&dPremium Corner Booth'
+    schematic: marketboothCorner2.schem
+    icon: PURPLE_CONCRETE
+    enabled: true
+    priority: 2
+    rental:
+      price: 15000
+      duration-hours: 168
+      renewal-price: 15000
+      renewal-hours: 168
+      grace-hours: 0
+      cooldown-hours: 48
+      max-per-player: 1
+      max-duration-hours: 672
+      required-permission: 'skyboxymarket.rent.premium'
+    offsets:
+      teleport: {x: 0.0, y: 1.0, z: 0.0, yaw: 0.0}
+      hologram: {x: 0.0, y: 2.0, z: 0.0}
+    walls:
+      template-material: GRAY_CONCRETE
+      cost: 0
+      cooldown-seconds: 0
+      colors: [WHITE, ORANGE, MAGENTA, LIGHT_BLUE, YELLOW, LIME, PINK, GRAY, LIGHT_GRAY, CYAN, PURPLE, BLUE, BROWN, GREEN, RED, BLACK]

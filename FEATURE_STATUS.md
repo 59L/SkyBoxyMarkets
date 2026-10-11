@@ -1,0 +1,36 @@
+# SkyBoxyMarket feature status
+
+Updated 2026-10-11. `Verified` describes only the scenarios listed below. This remains a tested development build, **not production-ready**.
+
+| Area | Status | Evidence and remaining work |
+|---|---|---|
+| Java 25 / Gradle build | Verified | Clean `clean test shadowJar` passes: 35 JUnit tests, no failures or skips. The shaded JAR contains SQLite and both bundled schematics, and excludes the Paper test harness. |
+| Booth schematics and restoration | Verified for supplied assets | Source asset tests and isolated Paper checks validate both styles at rotations 0–3. Restoration passed after deliberate damage with FAWE loaded, using the WorldEdit Bukkit world adapter. The FAWE edit-session queue is not used because it failed on the tested Paper build. |
+| Scanner and booth persistence | Verified with limits | Paper found eight hand-built booths (four per style/orientation), persisted IDs across restart, and avoided duplicates on rescan. Unloaded positions are reported. Ambiguous/boundary cases and large-region scan/TPS measurements remain. |
+| Spatial lookup | Verified for stated budget | Latest isolated Paper run measured 100,000 lookups across 1,000 synthetic booths in 36 ms against a 5,000 ms smoke budget. This does not measure full server event or scan TPS. |
+| SQLite backup, diagnostics, payment journal | Partial | Migrations 3–4 add durable payment intents and a reset restore cursor. Rent/renewal/wall commits mark payment applied in the same SQLite transaction. Interrupted charge/refund states are surfaced in the admin Payment Review GUI; resolution requires a staff-verified provider outcome and never retries or sends a refund. Unit and Paper fault tests cover commit failure, successful compensation, refused refund, and review resolution. No database restore command or corruption-repair process is provided. |
+| Item recovery and claim receipts | Partial / release-blocking | Paper captured both double-chest halves once, placed blocks, drops, a shulker shell and nested contents with PDC metadata. Partial claims merge into matching stacks and atomically preserve the remainder. Quantity-marked receipts retain pre-existing stock during multi-slot, keep-inventory and selected-kept deaths. Injected ledger/player-save failures and simulated reconnects validate locking and save-before-reopen ordering. One flushed reset batch recovered after an actual JVM halt. Claim tests use simulated players; real player saves, power loss, third-party inventory plugins, unusual block entities, and complete sign/tile-state fidelity remain unverified. |
+| Reset and booth reuse | Partial | Paper validated a 17-block-per-tick budget, persisted cursor movement across multiple batches, and startup recovery from both `SNAPSHOTTING` and `RESTORING` with a partially restored schematic staged at cursor 32; the harness unloaded affected chunks before restart. A separate test halted the JVM abruptly after a world flush and cursor commit, then verified recovery after restart. Every crash boundary, OS/power-loss behavior, missing-world/schematic, and performance gates remain incomplete. Snapshot scanning, world flushes, and chunk loads still run synchronously. |
+| Native Minecraft GUIs | Partial | Paper checked native inventory menus, multi-booth selection, owner search, stale-action authority, payment review, diagnostics, and backup. Recovery item/page actions support partial capacity with persistent remainders. Whole-storage claims passed 94 entries across three pages, fixed starting cutoff, later fitting entries after a no-fit page, duplicate/concurrent requests, receipt failure/retry, disconnect, permission revocation, shutdown cancellation and navigation preservation. The pass checks at most 16 entries and delivers at most one receipt per tick per player. Tests use simulated players. Style-version migrations, per-booth overrides, and human-client acceptance remain unfinished. |
+| Rentals and Vault payments | Partial | EssentialsX `2.22.0` registered its real `EssentialsX Economy` Vault provider; startup discovery, provider register/unregister, rent, renewal, and wall charges passed against a synthetic account. Essentials logged that Paper `26.2` is unsupported. A test provider also covered duplicate-click prevention and injected SQLite/refund failures. Provider behavior on a supported production server and abrupt crash windows still need verification. |
+| Protection and access | Partial / release-blocking | Paper exercised renter/visitor placement and breaking, structural masks, bypass, banned walking/teleport, private/trusted/locked entry, ordinary storage, fluids, pistons, dispensers, hopper transfer, explosions, locked vehicle entry, and live permission toggles. Full role/action coverage, production WorldGuard event ordering, redstone, and third-party shop events remain. |
+| Wall recoloring | Verified for mask behavior | All 16 concrete colors were applied across four rotations; non-wall schematic blocks stayed unchanged. A paid wall change passed through EssentialsX. Restart persistence and live-player cooldown UX remain. |
+| Holograms | Partial | Repeated refresh kept one TextDisplay and one Interaction for each of eight loaded booths. Actual chunk unload/reload and human interaction are not certified. |
+| QuickShop-Hikari | Unverified; disabled without compatible API | No QuickShop-Hikari JAR was supplied. The bridge now fails closed unless its manager, deletion method, shop location, and purchase-event signatures are present. Shop deletion, purchase accounting, and exact-jar compatibility were not tested; sales are not authoritative. |
+
+## Built test artifact
+
+- JAR: `build/libs/SkyBoxyMarket-1.0.0-SNAPSHOT.jar`
+- SHA-256: `72B260512F7149E2BA8CCE4BC9F982820849095151DB88729D2FA86B9AE8F696`
+- Both bundled schematic files were compared byte-for-byte with their source files. The artifact is an unsigned development snapshot for isolated acceptance testing.
+
+## Runtime acceptance environment
+
+- Paper `26.2-121-main` (`26.2.build.121-stable`) on Java `25.0.4.1`; compile/test API is Paper `26.2.build.133-stable`.
+- FastAsyncWorldEdit `2.15.2+e9ed0d1`, WorldGuard `7.0.17+2370-e42d8bc`, Vault `1.7.3-b131`, and EssentialsX `2.22.0`.
+- EssentialsX emitted an unsupported-server-version warning on this Paper build, although its Vault provider completed the tested operations. The test account was synthetic. The separate compensation failure test used a test-only Vault API provider.
+- QuickShop-Hikari was absent. The Paper harness is test-only and is not bundled in the plugin JAR; no player client was connected. The live server's `PluginsNew` directory was not changed.
+
+## Release gate
+
+Do not deploy to a live player economy or valuable world. Remaining gates include a supported production Paper/economy compatibility run, real-player GUI checks, the complete WorldGuard/protection matrix, power-loss and additional crash tests at reset and claim boundaries, full block-entity fidelity, style-version migrations/per-booth overrides, and QuickShop-Hikari tests against an exact target JAR. The single abrupt-JVM test proves only recovery after one flushed reset batch. The current artifact proves only the scenarios listed above.

@@ -1,0 +1,10 @@
+# Third-party shop plugin JARs supplied for integration testing. Versions and
+# SHA-256 hashes are recorded in RESUME_PLAN.md; the binaries are not ours to publish.
+/*.jar
+
+# Build output and machine-local state
+/build/
+/.gradle/
+/.temp/
+*.class
+*.log
