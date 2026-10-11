@@ -448,10 +448,120 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
     getLogger().info("HOLOGRAM PASS repeated refresh kept one TextDisplay and one Interaction for each of "+verified+" loaded booths");
   }
   private void testOptionalShopFailsClosed(Object market,List<?> booths)throws Exception{
-    Object bridge=((List<?>)call(field(market,"shops"),"all",new Class<?>[0])).getFirst();
-    if(Boolean.TRUE.equals(call(bridge,"available",new Class<?>[0])))throw new IllegalStateException("QuickShop is not installed in this isolated acceptance server, but the bridge reported itself available");
-    Object booth=booths.getFirst();call(field(market,"shops"),"detach",new Class<?>[]{booth.getClass()},booth);
-    getLogger().info("QUICKSHOP FAIL-CLOSED PASS unavailable optional API did not enable shop deletion or sale accounting");
+    Object shops=field(market,"shops");
+    for(Object provider:(List<?>)call(shops,"all",new Class<?>[0])){
+      String name=(String)call(provider,"name",new Class<?>[0]);String status=String.valueOf(call(provider,"status",new Class<?>[0]));
+      boolean installed=Bukkit.getPluginManager().getPlugin(name)!=null;
+      if(!installed&&"AVAILABLE".equals(status))throw new IllegalStateException(name+" is not installed, but its provider reported itself available");
+      if(installed&&!"AVAILABLE".equals(status))throw new IllegalStateException(name+" is installed, but its provider is "+status);
+      getLogger().info("SHOP PROVIDER "+name+" installed="+installed+" status="+status);
+    }
+    if(Bukkit.getPluginManager().getPlugin("QuickShop-Hikari")==null){
+      Object booth=booths.getFirst();call(shops,"detach",new Class<?>[]{booth.getClass()},booth);
+      getLogger().info("QUICKSHOP FAIL-CLOSED PASS unavailable optional API did not enable shop deletion or sale accounting");
+    }else testQuickShop(market,booths);
+  }
+  @SuppressWarnings({"rawtypes","unchecked"})
+  private void testQuickShop(Object market,List<?> booths)throws Exception{
+    ClassLoader ql=Bukkit.getPluginManager().getPlugin("QuickShop-Hikari").getClass().getClassLoader();
+    Class<?> apiType=Class.forName("com.ghostchu.quickshop.api.QuickShopAPI",true,ql),managerType=Class.forName("com.ghostchu.quickshop.api.shop.ShopManager",true,ql);
+    Class<?> shopType=Class.forName("com.ghostchu.quickshop.api.shop.Shop",true,ql),qUserType=Class.forName("com.ghostchu.quickshop.api.obj.QUser",true,ql);
+    Class<?> wrapperType=Class.forName("com.ghostchu.quickshop.api.inventory.InventoryWrapper",true,ql);
+    Class<?> bukkitWrapper=Class.forName("com.ghostchu.quickshop.shop.inventory.BukkitInventoryWrapper",true,ql);
+    Class<?> qsType=Class.forName("com.ghostchu.quickshop.QuickShop",true,ql),simpleManager=Class.forName("com.ghostchu.quickshop.shop.SimpleShopManager",true,ql);
+    Class<?> userImpl=Class.forName("com.ghostchu.quickshop.obj.QUserImpl",true,ql);
+    Object api=apiType.getMethod("getInstance").invoke(null),manager=apiType.getMethod("getShopManager").invoke(api);
+    Object qs=api; // QuickShop implements QuickShopAPI; avoid Class.getMethod on it, which resolves its optional PlaceholderAPI signatures
+    Object db=field(market,"db"),shops=field(market,"shops");
+    Class<?> economyType=market.getClass().getClassLoader().loadClass("net.milkbowl.vault.economy.Economy");
+    Object economy=Bukkit.getServicesManager().getRegistration((Class)economyType).getProvider();
+    Method balance=economyType.getMethod("getBalance",org.bukkit.OfflinePlayer.class),deposit=economyType.getMethod("depositPlayer",org.bukkit.OfflinePlayer.class,double.class);
+
+    // A rented premium booth with a renter-placed chest holding ten diamonds.
+    Object booth=booths.stream().filter(b->{try{return field(b,"style").equals("premium_corner")&&(int)field(b,"rotation")==0&&field(b,"owner")==null;}catch(Exception e){return false;}}).findFirst().orElseThrow();
+    UUID ownerId=UUID.randomUUID(),buyerId=UUID.randomUUID();Inventory[] opened={null};
+    // QuickShop checks its own quickshop.* nodes for ordinary use; the visitor has no SkyBoxyMarket permissions.
+    Set<String> quickShopUser=new AbstractSet<>(){@Override public boolean contains(Object o){return String.valueOf(o).startsWith("quickshop.");}@Override public Iterator<String> iterator(){return Collections.emptyIterator();}@Override public int size(){return 0;}};
+    Player owner=fakePlayer(ownerId,Set.of(),opened),visitor=fakePlayer(buyerId,quickShopUser,opened);
+    setField(booth,"owner",ownerId);setField(booth,"leaseId","smoke-qs-"+UUID.randomUUID());setField(booth,"expiry",System.currentTimeMillis()+3600000L);
+    call(db,"save",new Class<?>[]{booth.getClass()},booth);
+    World world=Bukkit.getWorld((String)field(booth,"world"));Object template=((Map<?,?>)field(field(market,"templates"),"templates")).get("premium_corner");
+    int[] cell=null;for(Object c:(List<?>)field(template,"cells"))if(field(c,"material")==Material.AIR&&(int)field(c,"y")==1){cell=new int[]{(int)field(c,"x"),1,(int)field(c,"z")};break;}
+    if(cell==null)throw new IllegalStateException("No floor-level air cell for the QuickShop chest");
+    org.bukkit.block.Block chestBlock=world.getBlockAt((int)field(booth,"x")+cell[0],(int)field(booth,"y")+1,(int)field(booth,"z")+cell[2]);
+    chestBlock.setType(Material.CHEST,false);Inventory stock=((Chest)chestBlock.getState()).getInventory();stock.addItem(new ItemStack(Material.DIAMOND,10));
+
+    // Create the shop exactly as QuickShop's own actionCreate builds it.
+    Object qOwner=userImpl.getMethod("createFullFilled",UUID.class,String.class,boolean.class).invoke(null,ownerId,"qsowner",true);
+    Class<?> wrapperManagerType=Class.forName("com.ghostchu.quickshop.api.inventory.InventoryWrapperManager",true,ql);
+    Object wrapperManager;try{wrapperManager=java.lang.invoke.MethodHandles.publicLookup().findVirtual(qsType,"getInventoryWrapperManager",java.lang.invoke.MethodType.methodType(wrapperManagerType)).invoke(qs);}catch(Throwable t){throw new Exception(t);}
+    Object link=wrapperManagerType.getMethod("mklink",wrapperType)
+            .invoke(wrapperManager,bukkitWrapper.getConstructor(Inventory.class).newInstance(stock));
+    Field selling=simpleManager.getDeclaredField("SELLING_TYPE"),active=simpleManager.getDeclaredField("ACTIVE_STATE");selling.setAccessible(true);active.setAccessible(true);
+    Object shop=Class.forName("com.ghostchu.quickshop.shop.ContainerShop",true,ql).getConstructors()[0].newInstance(qs,-1L,chestBlock.getLocation(),10.0,new ItemStack(Material.DIAMOND),qOwner,false,
+            selling.get(null),active.get(null),new java.util.concurrent.ConcurrentHashMap<>(),null,true,null,
+            Bukkit.getPluginManager().getPlugin("QuickShop-Hikari").getName(),link,null,Collections.emptyMap(),
+            Class.forName("com.ghostchu.quickshop.economy.QSBenefitProvider",true,ql).getConstructor().newInstance(),
+            Class.forName("com.ghostchu.quickshop.shop.cache.SimpleShopInventoryCountCache",true,ql).getConstructor().newInstance());
+    // createShop() insists on an online owner; register and load the shop the way it does after its player checks.
+    ((java.util.concurrent.CompletableFuture<?>)managerType.getMethod("registerShop",shopType,boolean.class).invoke(manager,shop,true)).get(10,java.util.concurrent.TimeUnit.SECONDS);
+    managerType.getMethod("loadShop",shopType).invoke(manager,shop);
+    Object provider=call(shops,"ownerOf",new Class<?>[]{Location.class},chestBlock.getLocation());
+    if(provider==null||!"QuickShop-Hikari".equals(call(provider,"name",new Class<?>[0])))throw new IllegalStateException("Registry did not attribute the QuickShop chest to QuickShop-Hikari");
+
+    // Visitors may use the shop but never open its storage.
+    Object protection=HandlerList.getRegisteredListeners((Plugin)market).stream().map(reg->reg.getListener()).filter(l->l.getClass().getName().endsWith("MarketProtection")).findFirst().orElseThrow();
+    org.bukkit.event.player.PlayerInteractEvent click=new org.bukkit.event.player.PlayerInteractEvent(visitor,org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK,null,chestBlock,BlockFace.UP);
+    invoke(protection,"interact",new Class<?>[]{org.bukkit.event.player.PlayerInteractEvent.class},click);
+    if(click.isCancelled())throw new IllegalStateException("Visitor could not interact with a QuickShop shop chest");
+    if((boolean)call(market,"allowed",new Class<?>[]{Player.class,booth.getClass(),String.class},visitor,booth,"containers"))throw new IllegalStateException("Visitor may open QuickShop storage");
+
+    // A real purchase through QuickShop's trade service; compare every event amount with the owner's actual Vault change.
+    // Each fake player has a unique name, so Essentials keeps one account per player for QuickShop to resolve.
+    org.bukkit.OfflinePlayer buyerAccount=Bukkit.getOfflinePlayer(buyerId),ownerAccount=Bukkit.getOfflinePlayer(ownerId);
+    for(org.bukkit.OfflinePlayer account:List.of(buyerAccount,ownerAccount))
+      try{economyType.getMethod("createPlayerAccount",org.bukkit.OfflinePlayer.class).invoke(economy,account);}catch(Exception ignored){}
+    Object depositResponse=deposit.invoke(economy,buyerAccount,1000.0);
+    getLogger().info("QUICKSHOP ACCOUNT deposit="+depositResponse.getClass().getMethod("transactionSuccess").invoke(depositResponse)+" error="+depositResponse.getClass().getField("errorMessage").get(depositResponse)
+            +" buyerBalance="+balance.invoke(economy,buyerAccount)+" worldBalance="+economyType.getMethod("getBalance",org.bukkit.OfflinePlayer.class,String.class).invoke(economy,buyerAccount,"world"));
+    double ownerBefore=(double)balance.invoke(economy,ownerAccount),salesBefore=(double)field(booth,"sales");
+    List<double[]> events=new ArrayList<>();org.bukkit.event.Listener capture=new org.bukkit.event.Listener(){};
+    Class<? extends org.bukkit.event.Event> successType=(Class)Class.forName("com.ghostchu.quickshop.api.event.economy.ShopSuccessPurchaseEvent",true,ql);
+    Bukkit.getPluginManager().registerEvent(successType,capture,org.bukkit.event.EventPriority.MONITOR,(l,ev)->{if(!successType.isInstance(ev))return;try{
+      events.add(new double[]{(double)ev.getClass().getMethod("getBalance").invoke(ev),(double)ev.getClass().getMethod("getBalanceWithoutTax").invoke(ev),(double)ev.getClass().getMethod("getTax").invoke(ev)});
+    }catch(Exception ex){throw new RuntimeException(ex);}},this,true);
+    Object buyer=userImpl.getMethod("createFullFilled",UUID.class,String.class,boolean.class).invoke(null,buyerId,"qsbuyer",true);
+    // The path a real player takes: ShopUtil maps a click on a selling shop to PURCHASE_BUY -> ShopManager.actionSelling.
+    // (The newer TradeService API does not fire ShopSuccessPurchaseEvent in 6.3.0.3, so it is not what players use.)
+    Class<?> actionType=Class.forName("com.ghostchu.quickshop.api.shop.ShopAction",true,ql),infoType=Class.forName("com.ghostchu.quickshop.api.shop.Info",true,ql);
+    Class<?> economyProviderType=Class.forName("com.ghostchu.quickshop.api.economy.EconomyProvider",true,ql);
+    Object info=Class.forName("com.ghostchu.quickshop.shop.SimpleInfo",true,ql).getConstructor(Location.class,actionType,ItemStack.class,org.bukkit.block.Block.class,shopType,boolean.class)
+            .newInstance(chestBlock.getLocation(),actionType.getField("PURCHASE_BUY").get(null),new ItemStack(Material.DIAMOND),null,shop,false);
+    Object qsEconomy=Class.forName("com.ghostchu.quickshop.api.economy.EconomyManager",true,ql).getMethod("provider").invoke(apiType.getMethod("getEconomyManager").invoke(api));
+    Inventory buyerStock=Bukkit.createInventory(null,36);
+    boolean bought=(boolean)managerType.getMethod("actionSelling",Player.class,wrapperType,economyProviderType,infoType,shopType,int.class)
+            .invoke(manager,visitor,bukkitWrapper.getConstructor(Inventory.class).newInstance(buyerStock),qsEconomy,info,shop,2);
+    HandlerList.unregisterAll(capture);
+    Object result="actionSelling="+bought+" buyerDiamonds="+buyerStock.all(Material.DIAMOND).values().stream().mapToInt(ItemStack::getAmount).sum();
+    if(!bought)throw new IllegalStateException("QuickShop purchase failed: "+result+" messages="+playerMessages);
+    double ownerGain=(double)balance.invoke(economy,ownerAccount)-ownerBefore,salesGain=(double)field(booth,"sales")-salesBefore;
+    if(events.size()!=1)throw new IllegalStateException("Expected one QuickShop success event, saw "+events.size());
+    double[] ev=events.getFirst();
+    getLogger().info("QUICKSHOP SALE OBSERVED ownerGain="+ownerGain+" getBalance="+ev[0]+" getBalanceWithoutTax="+ev[1]+" getTax="+ev[2]+" boothSalesGain="+salesGain+" result="+result);
+    if(Math.abs(salesGain-ownerGain)>0.001)throw new IllegalStateException("Booth sales grew by "+salesGain+" but the owner received "+ownerGain);
+    if(stock.all(Material.DIAMOND).values().stream().mapToInt(ItemStack::getAmount).sum()!=8)throw new IllegalStateException("QuickShop purchase did not take two diamonds from the shop chest");
+
+    // Reset: the shop is deleted and the eight remaining diamonds are journaled exactly once.
+    Object recovery=field(market,"recovery");invoke(recovery,"reset",new Class<?>[]{booth.getClass(),String.class},booth,"SMOKE_QUICKSHOP");
+    if((boolean)call(shops,"shopAt",new Class<?>[]{Location.class},chestBlock.getLocation())||managerType.getMethod("getShopIncludeAttached",Location.class).invoke(manager,chestBlock.getLocation())!=null)
+      throw new IllegalStateException("Booth reset left the QuickShop shop registered");
+    int recovered=0;for(Object entry:(List<?>)call(db,"recovered",new Class<?>[]{UUID.class,int.class,int.class},ownerId,0,45)){
+      ItemStack item=(ItemStack)call(entry,"item",new Class<?>[0]);
+      if(item.getType()!=Material.DIAMOND)throw new IllegalStateException("Reset journaled a non-stock item from the QuickShop booth: "+item);
+      recovered+=item.getAmount();
+    }
+    if(recovered!=8)throw new IllegalStateException("Expected eight diamonds journaled once after QuickShop reset, found "+recovered);
+    getLogger().info("QUICKSHOP PASS shop created in booth; visitor purchase allowed, storage closed; sale counted once ("+salesGain+"); reset deleted the shop and journaled 8 stock items once");
   }
   private void testResetAndRecovery(Object market,List<?> booths,Map<?,?> templates,File restartMarker) throws Exception {
     Object booth=booths.stream().filter(b -> {try{return field(b,"style").equals("normal")&&field(b,"rotation").equals(0);}catch(Exception e){return false;}}).findFirst().orElseThrow();
@@ -982,6 +1092,7 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
   }
   private static void invoke(Object target,String name,Class<?>[] parameterTypes,Object... arguments)throws Exception{Method method=target.getClass().getDeclaredMethod(name,parameterTypes);method.setAccessible(true);method.invoke(target,arguments);}
   private static Object call(Object target,String name,Class<?>[] parameterTypes,Object... arguments)throws Exception{Method method=target.getClass().getDeclaredMethod(name,parameterTypes);method.setAccessible(true);return method.invoke(target,arguments);}
+  private final List<String> playerMessages=Collections.synchronizedList(new ArrayList<>());
   private Player fakePlayer(UUID id,Set<String> permissions,Inventory[] opened){return fakePlayer(id,permissions,opened,null);}
   private Player fakePlayer(UUID id,Set<String> permissions,Inventory[] opened,PlayerInventory inventory){
     return fakePlayer(id,permissions,opened,inventory,()->{});
@@ -994,12 +1105,13 @@ public final class PaperAcceptanceHarness extends JavaPlugin {
       if(method.getName().equals("getUniqueId"))return id;
       if(method.getName().equals("getInventory")&&inventory!=null)return inventory;
       if(method.getName().equals("saveData")){save.run();return null;}
-      if(method.getName().equals("getName"))return "skyboxy-smoke";
+      if(method.getName().equals("getName"))return "smoke-"+id.toString().substring(0,8); // unique: economies map names to accounts
       if(method.getName().equals("hasPermission"))return args!=null&&args.length>0&&permissions.contains(args[0].toString());
       if(method.getName().equals("openInventory")){opened[0]=(Inventory)args[0];return null;}
       if(method.getName().equals("getOpenInventory"))return Proxy.newProxyInstance(org.bukkit.inventory.InventoryView.class.getClassLoader(),new Class<?>[]{org.bukkit.inventory.InventoryView.class},
               (view,viewMethod,viewArgs)->viewMethod.getName().equals("getTopInventory")?opened[0]:null);
-      if(method.getName().equals("sendMessage")||method.getName().equals("closeInventory"))return null;
+      if(method.getName().equals("sendMessage")){if(args!=null&&args.length>0)playerMessages.add(String.valueOf(args[0]));return null;}
+      if(method.getName().equals("closeInventory"))return null;
       if(method.getName().equals("isOnline"))return online.getAsBoolean();
       if(method.getName().equals("isOp"))return false;
       if(method.getName().equals("hashCode"))return System.identityHashCode(proxy);

@@ -13,6 +13,8 @@ import java.util.*;
 
 /** Optional reflection-only bridge against the QuickShop-Hikari 6.3 public API. */
 final class QuickShopBridge implements ShopProvider {
+    /** Money the owner actually receives. Observed on 6.3.0.3: equals the owner's Vault gain whether tax is charged to the buyer or the owner; getBalanceWithoutTax is the pre-tax gross. */
+    static final String REVENUE="getBalance";
     private final SkyBoxyMarket p;
     private final Object shopManager;
     private final Class<?> shopInterface;
@@ -31,13 +33,14 @@ final class QuickShopBridge implements ShopProvider {
                 if(candidateManager==null)throw new NoSuchMethodException("QuickShop API returned no shop manager");
                 candidateManager.getClass().getMethod("getShopIncludeAttached",Location.class);
                 candidateManager.getClass().getMethod("deleteShop",shopType);
-                shopType.getMethod("getLocation");
+                shopType.getMethod("bukkitLocation");shopType.getMethod("isSelling");
                 Class<?> success=Class.forName("com.ghostchu.quickshop.api.event.economy.ShopSuccessPurchaseEvent",true,loader);
                 if(!Event.class.isAssignableFrom(success))throw new NoSuchMethodException("QuickShop success-purchase type is not a Bukkit event");
-                success.getMethod("getShop");success.getMethod("getTotal");
+                success.getMethod("getShop");success.getMethod(REVENUE);
                 @SuppressWarnings("unchecked") Class<? extends Event> eventClass=(Class<? extends Event>)success;
                 Listener listener=new Listener() {};
-                Bukkit.getPluginManager().registerEvent(eventClass,listener,EventPriority.MONITOR,(ignored,event)->recordSale(event),p,true);
+                // QuickShop events share one HandlerList, so this executor also sees other QuickShop events.
+                Bukkit.getPluginManager().registerEvent(eventClass,listener,EventPriority.MONITOR,(ignored,event)->{if(eventClass.isInstance(event))recordSale(event);},p,true);
                 mgr=candidateManager;clazz=shopType;st=Status.AVAILABLE;
                 p.getLogger().info("QuickShop-Hikari public API signatures verified; success-purchase event hooked.");
             }
@@ -78,10 +81,11 @@ final class QuickShopBridge implements ShopProvider {
     private void recordSale(Event e){
         try{
             Object shop=e.getClass().getMethod("getShop").invoke(e);
-            if(shop==null)return;
-            Location location=(Location)shop.getClass().getMethod("getLocation").invoke(shop);
+            // The event also fires when a player sells into an owner's buying shop; the owner pays then, so it is not revenue.
+            if(shop==null||!Boolean.TRUE.equals(shop.getClass().getMethod("isSelling").invoke(shop)))return;
+            Location location=(Location)shop.getClass().getMethod("bukkitLocation").invoke(shop);
             Booth b=p.at(location);
-            Object total=e.getClass().getMethod("getTotal").invoke(e);
+            Object total=e.getClass().getMethod(REVENUE).invoke(e);
             if(!(total instanceof Number number))return;
             // ponytail: QuickShop events carry no ID, so each delivery gets a fresh key; replay dedupe matters for providers with stored records.
             ShopProviders.recordSale(p.db,b,name(),UUID.randomUUID().toString(),number.doubleValue());

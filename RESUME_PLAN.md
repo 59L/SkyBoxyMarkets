@@ -130,7 +130,10 @@ Replace the single `QuickShopBridge` field with a provider interface so three pl
 
 **Done when:** unit tests with a fake provider cover precedence, detach failure keeping the booth locked, and sale idempotency; the existing absent-provider fail-closed Paper check still passes.
 
-### Step 2 — QuickShop-Hikari 6.3.0.3
+### Step 2 — QuickShop-Hikari 6.3.0.3 — DONE 2026-10-11
+
+Results are in the `FEATURE_STATUS.md` QuickShop row. Owner revenue is `getBalance`, not `getBalanceWithoutTax`. Two bridge bugs were fixed: the listener ignored the event type (QuickShop events share a HandlerList), and the bridge counted buying-shop trades as revenue. Shop JARs come from Modrinth; QuickShop-Hikari and mc-PlayerShop match the section 3 hashes. `run.ps1 -Shops quickshop` pre-seeds a QuickShop config that charges tax to the owner.
+
 
 - Replace the `getTotal()` requirement. Decide between `getBalance()` and `getBalanceWithoutTax()` by observing a real purchase; record which one is owner revenue.
 - Use `bukkitLocation()`; confirm deletion through `ShopDeleteEvent` or the manager lookup rather than assuming `deleteShop` is synchronous.
