@@ -1,0 +1,13 @@
+# Merge into the SkyBoxy backend's server.properties.
+
+# The proxy authenticates; the backend trusts only forwarded data signed with the
+# Velocity secret (paper-global.yml below).
+online-mode=false
+
+# Never expose the backend directly. Loopback when the proxy runs on the same host;
+# otherwise bind to the private interface and firewall the port to the proxy's IP.
+server-ip=127.0.0.1
+server-port=25566
+
+# Cracked and Bedrock players have no Mojang chat-signing key.
+enforce-secure-profile=false
