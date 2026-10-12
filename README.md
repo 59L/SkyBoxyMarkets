@@ -69,4 +69,5 @@ Permissions are `skyboxymarket.use`, `skyboxymarket.admin`, `skyboxymarket.bypas
 - [Configuration reference](docs/CONFIGURATION.md)
 - [Operations, permissions, and upgrade steps](docs/OPERATIONS.md)
 - [Compatibility and test matrix](docs/COMPATIBILITY.md)
+- [Cross-play setup: cracked/premium, Bedrock, Java 1.21+](deploy/crossplay/README.md)
 - [Implementation plan](CODEX_IMPLEMENTATION_PLAN.md)
