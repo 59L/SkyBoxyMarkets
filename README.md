@@ -10,13 +10,19 @@ Requirements: JDK 25 and the included Gradle 9.2.1 wrapper.
 .\gradlew.bat clean test shadowJar
 ```
 
-The shaded plugin is `build/libs/SkyBoxyMarket-1.0.0-SNAPSHOT.jar`. SQLite JDBC is included in the JAR; Paper, WorldGuard, WorldEdit/FAWE, and Vault are server-provided. The checked-in CI workflow uses the wrapper.
+The shaded plugin is `build/libs/SkyBoxyMarket-1.0.0-SNAPSHOT.jar`. SQLite JDBC is included in the JAR; Paper, WorldGuard, WorldEdit/FAWE, and Vault are server-provided. The checked-in CI workflow uses the wrapper. One JAR targets both Paper 26.1.2 and
+26.2: production code always compiles against the pinned 26.1.2 API, and plugin
+metadata declares 26.1.2 as its minimum. CI runs tests against both API versions.
+To repeat the 26.2 API test locally, run
+`./gradlew clean test shadowJar -PpaperTestApiVersion=26.2.build.133-stable`.
+These API checks do not replace server acceptance with compatible dependencies.
+Do not downgrade a 26.2 world or its serialized recovery items to 26.1.2.
 
-Build classpath: Paper API `26.2.build.133-stable`, WorldEdit `7.4.0`, WorldGuard `7.0.18`, Vault API `1.7`, Java 25, Gradle 9.2.1. Runtime acceptance used Paper `26.2-121`, FAWE `2.15.2+e9ed0d1`, WorldGuard `7.0.17+2370-e42d8bc`, and Vault `1.7.3-b131`. See [FEATURE_STATUS.md](FEATURE_STATUS.md) for exact evidence and limits.
+Build classpath: Paper API `26.1.2.build.74-stable`, WorldEdit `7.4.0`, WorldGuard `7.0.18`, Vault API `1.7`, Java 25, Gradle 9.2.1. Runtime acceptance used Paper `26.2-121`, FAWE `2.15.2+e9ed0d1`, WorldGuard `7.0.17+2370-e42d8bc`, and Vault `1.7.3-b131`. See [FEATURE_STATUS.md](FEATURE_STATUS.md) for exact evidence and limits.
 
 ## Runtime requirements
 
-- Paper 26.2 with Java 25.
+- Paper 26.1.2 or 26.2 with Java 25. Use WorldGuard and WorldEdit/FAWE builds compatible with your server version.
 - WorldGuard and Vault. A Vault economy provider is required when any configured charge is above zero; without one, paid actions fail closed.
 - WorldEdit or FAWE for schematic loading and booth restoration. Clipboard restoration was tested on the isolated Paper build using Bukkit's WorldEdit world adapter; the FAWE edit-session queue is not used for paste because it failed on the tested build.
 - QuickShop-Hikari is optional. The bridge now stays disabled unless the expected public API signatures are present. No target JAR was supplied, so sales figures and shop cleanup remain unverified and must not be treated as authoritative.

@@ -18,10 +18,15 @@ java {
     toolchain.languageVersion.set(JavaLanguageVersion.of(25))
 }
 
+// Compile the distributed JAR against the oldest supported API. Tests may run
+// against a newer API without allowing newer symbols into production classes.
+val paperApiVersion = "26.1.2.build.74-stable"
+val paperTestApiVersion = providers.gradleProperty("paperTestApiVersion").getOrElse(paperApiVersion)
+
 dependencies {
     // Keep the server API deterministic: dynamic build selectors can silently
     // change the API and the transitive dependency graph between builds.
-    compileOnly("io.papermc.paper:paper-api:26.2.build.133-stable")
+    compileOnly("io.papermc.paper:paper-api:$paperApiVersion")
 
     // WorldGuard 7.0.18 is built against WorldEdit 7.4.0. Paper supplies the
     // Guava and Gson versions at runtime; the EngineHub metadata marks those
@@ -45,7 +50,7 @@ dependencies {
     implementation("org.slf4j:slf4j-nop:2.0.17")
     testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.12.2")
-    testImplementation("io.papermc.paper:paper-api:26.2.build.133-stable")
+    testImplementation("io.papermc.paper:paper-api:$paperTestApiVersion")
     testImplementation("com.sk89q.worldedit:worldedit-bukkit:7.4.0") {
         exclude(group = "com.google.guava", module = "guava")
         exclude(group = "com.google.code.gson", module = "gson")

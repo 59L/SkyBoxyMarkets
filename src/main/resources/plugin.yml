@@ -1,7 +1,7 @@
 name: SkyBoxyMarket
 version: 1.0.0-SNAPSHOT
 main: dev.skyboxy.market.SkyBoxyMarket
-api-version: '26.2'
+api-version: '26.1.2'
 author: SkyBoxy
 website: https://github.com/59L
 load: POSTWORLD

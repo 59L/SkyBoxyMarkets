@@ -6,7 +6,7 @@
 |---|---|---|
 | Java | 25 | Gradle toolchain target. |
 | Gradle | 9.2.1 | Checked-in wrapper with checksum verification. |
-| Paper API | `26.2.build.133-stable` | Compile and test classpath. |
+| Paper API | `26.1.2.build.74-stable` | Minimum compile API and default test classpath; plugin metadata minimum is `26.1.2`. CI also tests against `26.2.build.133-stable`. |
 | WorldEdit | `7.4.0` | Compile-only server API. |
 | WorldGuard | `7.0.18` | Compile-only server API. |
 | Vault API | `1.7` | Compile-only; the server must provide Vault and an economy provider for charged actions. |
@@ -15,11 +15,19 @@
 | ChestShop | `3.12.2` (build 353) | Optional, reflection-only. Startup checks the sign helpers and the transaction and shop-creation events. |
 | mc-PlayerShop | `1.5.1` exactly | Optional; it has no public API, so the provider reflects on internals and refuses any other version.  |
 
+The supported server targets are Paper **26.1.2 and 26.2**, using Java 25.
+The production compile baseline stays at 26.1.2 even when
+`-PpaperTestApiVersion=26.2.build.133-stable` selects the newer test API.
+Install WorldGuard, WorldEdit/FAWE, Vault and shop plugins that support the selected
+server version. API compatibility does not certify those external plugins.
+Minecraft world/item data upgrades are one-way: do not move a 26.2 world or
+serialized recovery database back to 26.1.2.
+
 ## Runtime evidence
 
 | Component | Isolated smoke version | Result |
 |---|---|---|
-| Paper | `26.2-121-main` (`26.2.build.121-stable`) | Plugin enabled; both schematics/restoration rotations, menus, focused protection/recovery, payment repair, and reset restart checks passed. This is 12 builds behind the pinned compile API. |
+| Paper | `26.2-121-main` (`26.2.build.121-stable`) | Plugin enabled; both schematics/restoration rotations, menus, focused protection/recovery, payment repair, and reset restart checks passed. Historical runtime acceptance; it predates the dual-version build. |
 | Java | `25.0.4.1` | Paper server launched. |
 | FAWE | `2.15.2+e9ed0d1` | Loaded. Both schematics restored at rotations 0–3 through the WorldEdit Bukkit world adapter. FAWE's edit-session queue is bypassed because it raised `IllegalAccessError` on this Paper build. |
 | WorldGuard | `7.0.17+2370-e42d8bc` | Loaded; the scanner used the `marketmain` region. Full production flag/event-order acceptance was not run. |

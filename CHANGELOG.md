@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-31
+
+- Target Paper 26.1.2 and 26.2 with one Java 25 JAR by compiling against
+  Paper 26.1.2 and lowering the declared minimum API to 26.1.2.
+- Add a pinned two-version API test matrix in CI and document compatibility limits.
+
+
 ## 2026-10-12 — cross-play preparation (Claude)
 
 - **Cross-play kit** in [deploy/crossplay/](deploy/crossplay/README.md): Velocity with LibreLogin for cracked and premium accounts, Geyser and Floodgate for Bedrock, and ViaVersion/ViaBackwards on the backend for Java 1.21 and newer. Configuration only; nothing has been run on a server yet.

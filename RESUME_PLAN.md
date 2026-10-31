@@ -1,5 +1,21 @@
 # SkyBoxyMarket — resume plan
 
+## Paper 26.1.2 / 26.2 compatibility update — 2026-10-31
+
+- Production compilation now uses pinned Paper API `26.1.2.build.74-stable`;
+  `plugin.yml` declares minimum API `26.1.2`. The same JAR targets both servers.
+- Java 25 `clean test shadowJar` passed on the default 26.1.2 API and with
+  `-PpaperTestApiVersion=26.2.build.133-stable`: 39 tests each, no failures, errors
+  or skips. Production code stays on the 26.1.2 compile baseline in both runs.
+- CI now runs both API configurations. Bundled metadata, SQLite shading and
+  exclusion of the Paper acceptance harness were checked.
+- Current JAR: `build/libs/SkyBoxyMarket-1.0.0-SNAPSHOT.jar`.
+  SHA-256: `3624dcadf7140f344a34abeb4b295def7dc33625c813d4d439af2fe151292ec4`. Earlier hashes in this document describe historical artifacts.
+- No new full Paper server acceptance was run. External-plugin compatibility,
+  real-player acceptance and existing release gates remain open. Do not downgrade
+  a 26.2 world or serialized recovery items to 26.1.2.
+
+
 Written 2026-10-11 as the handoff from the Codex sessions to Claude. Read this first, then `FEATURE_STATUS.md`. `CODEX_IMPLEMENTATION_PLAN.md` holds the authoritative product requirements and the full Codex execution record; nothing here overrides its requirements.
 
 The plugin is a tested development build and is **not production-ready**. Do not install it on the live server (`PluginsNew`) without asking the owner first.
