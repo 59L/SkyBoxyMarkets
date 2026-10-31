@@ -46,3 +46,7 @@ The test harness uses synthetic player objects and a scratch world; no human cli
 - Inject abrupt process/power loss across every reset and recovery-claim persistence boundary; test custom item components and unusual block entities.
 - Measure reset snapshotting, chunk loading, and batched restoration TPS on production-sized booths and hardware.
 - Run real-player GUI/teleport checks and complete style-version/per-booth-override workflows before production use.
+
+## Cross-play (proxy, Bedrock, older Java)
+
+The intended network layout, plugin settings and acceptance list are in [deploy/crossplay/README.md](../deploy/crossplay/README.md). None of it has been run: no Velocity, Geyser, Floodgate, LibreLogin or ViaVersion build has been tested with this plugin, and no Bedrock or older Java client has opened its menus.

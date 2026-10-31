@@ -31,8 +31,11 @@ final class MarketChatInput implements Listener {
     private UUID find(String value){
         try{return UUID.fromString(value);}catch(IllegalArgumentException ignored){}
         Player online=Bukkit.getPlayerExact(value);if(online!=null)return online.getUniqueId();
-        OfflinePlayer offline=Bukkit.getOfflinePlayer(value);
-        return offline.hasPlayedBefore()?offline.getUniqueId():null;
+        // Cache-only lookup: never asks Mojang, so it works for offline-mode backends
+        // behind a proxy and resolves premium, cracked and Floodgate (".name") players
+        // to the UUID they actually joined with rather than a name-derived guess.
+        OfflinePlayer offline=Bukkit.getOfflinePlayerIfCached(value);
+        return offline!=null&&offline.hasPlayedBefore()?offline.getUniqueId():null;
     }
     private void process(Player user,String raw,String text){
         if(text.equalsIgnoreCase("cancel")){p.tell(user,"&7Action cancelled.");return;}

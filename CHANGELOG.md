@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-12 — cross-play preparation (Claude)
+
+- **Cross-play kit** in [deploy/crossplay/](deploy/crossplay/README.md): Velocity with LibreLogin for cracked and premium accounts, Geyser and Floodgate for Bedrock, and ViaVersion/ViaBackwards on the backend for Java 1.21 and newer. Configuration only; nothing has been run on a server yet.
+- **Player lookup by name** (booth members, bans, owner search, admin assign) now reads only Paper's local profile cache through `getOfflinePlayerIfCached`. Before, `getOfflinePlayer(name)` could block the main thread on a Mojang lookup and, on an offline-mode backend, guessed a name-derived UUID. It now returns the UUID the player actually joined with, whether premium, cracked or Bedrock. Not yet run on Paper; the artifact SHA-256 is unrecorded until the next local build.
+
 ## 2026-10-11 — shop providers and release-gate pass (Claude)
 
 - **Shop provider registry.** QuickShop-Hikari 6.3.0.3, ChestShop 3.12.2 and mc-PlayerShop 1.5.1 coexist, and each one fails closed. Sales are recorded once per `(provider, key)` in the new `shop_sales` table (schema migration 5). Diagnostics show each provider's state, and sales read "unavailable" when no provider is available.

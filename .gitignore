@@ -11,3 +11,8 @@
 
 # Per-task Claude usage log (machine-local)
 /TASK_USAGE.txt
+
+# Cross-play secrets (see deploy/crossplay/README.md)
+/deploy/**/forwarding.secret
+/deploy/**/key.pem
+/deploy/**/*.db
