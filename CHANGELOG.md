@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-09
+
+- **Booth hologram chunk-load lag.** The `ChunkLoadEvent` handler called `Location.getChunk()` on every booth's center for every chunk that loaded, which loads each booth chunk synchronously; a spark profile put it at about 15% of tick time. It now matches booths by world name and block coordinates, does nothing unless the loaded chunk holds a booth, and skips the follow-up if the chunk unloaded within the 2-tick delay. Not yet run on Paper; the artifact SHA-256 is unrecorded until the next local build.
+
 ## 2026-10-31
 
 - Target Paper 26.1.2 and 26.2 with one Java 25 JAR by compiling against
