@@ -58,13 +58,26 @@ final class MarketHolograms implements Listener {
         }
     }
     @EventHandler public void chunkLoad(ChunkLoadEvent event){
+        // Match booths by block coordinates only. Location.getChunk() would force a synchronous
+        // load of every booth's chunk on every chunk load, which showed up as ~15% of tick time.
+        String worldName=event.getWorld().getName();
+        int cx=event.getChunk().getX(),cz=event.getChunk().getZ();
+        List<Booth> matches=null;
+        for(Booth b:p.booths){
+            if(!worldName.equals(b.world))continue;
+            int bx=(int)Math.floor(b.x+(b.width/2.0)),bz=(int)Math.floor(b.z+(b.length/2.0));
+            if((bx>>4)!=cx||(bz>>4)!=cz)continue;
+            if(matches==null)matches=new ArrayList<>(1);
+            matches.add(b);
+        }
+        if(matches==null)return;
+        List<Booth> found=matches;
         Bukkit.getScheduler().runTaskLater(p,()->{
-            for(Booth b:p.booths){
-                Location center=b.center();
-                if(center==null||center.getChunk().getX()!=event.getChunk().getX()||center.getChunk().getZ()!=event.getChunk().getZ()
-                        ||!b.world.equals(event.getWorld().getName()))continue;
-                boolean has=event.getChunk().getEntities().length>0&&Arrays.stream(event.getChunk().getEntities())
-                        .anyMatch(e->b.id.equals(read(e))&&e instanceof TextDisplay);
+            World w=Bukkit.getWorld(worldName);
+            if(w==null||!w.isChunkLoaded(cx,cz))return;
+            Entity[] entities=w.getChunkAt(cx,cz).getEntities();
+            for(Booth b:found){
+                boolean has=Arrays.stream(entities).anyMatch(e->e instanceof TextDisplay&&b.id.equals(read(e)));
                 if(!has)refresh(b);
             }
         },2);
